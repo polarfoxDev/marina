@@ -1,0 +1,21 @@
+# Common
+eu.polarnight.marina.enabled=true
+eu.polarnight.marina.schedule=0 3 * * *
+eu.polarnight.marina.repo=s3:default          # maps to a repo alias in your env/config
+eu.polarnight.marina.retention=7d:14w:6m      # daily:weekly:monthly shorthand (parse to restic forget args)
+eu.polarnight.marina.exclude=*.tmp,cache/*    # comma-separated globs
+eu.polarnight.marina.tags=team:core,env:prod  # restic --tag
+
+# Volumes
+eu.polarnight.marina.type=volume
+eu.polarnight.marina.paths=/                  # paths relative to volume root (_data)
+eu.polarnight.marina.pre=bin/quiesce.sh       # exec in attached container (if set)
+eu.polarnight.marina.post=bin/unquiesce.sh
+eu.polarnight.marina.stopAttached=true        # stop attached container during backup
+
+# DB services (put on the DB container)
+eu.polarnight.marina.type=db
+eu.polarnight.marina.db=postgres              # postgres|mysql|mariadb|mongo|redis|…
+eu.polarnight.marina.dump.args=--clean --if-exists
+eu.polarnight.marina.pre=bin/quiesce.sh
+eu.polarnight.marina.post=bin/unquiesce.sh
