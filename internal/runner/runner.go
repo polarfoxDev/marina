@@ -10,27 +10,27 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/robfig/cron/v3"
 
+	"github.com/polarfoxDev/marina/internal/backend"
 	"github.com/polarfoxDev/marina/internal/docker"
 	"github.com/polarfoxDev/marina/internal/model"
-	"github.com/polarfoxDev/marina/internal/restic"
 )
 
 type Runner struct {
-	Cron       *cron.Cron
-	Repo       *restic.RepoConfig
-	Docker     *client.Client
-	VolumeRoot string // usually /var/lib/docker/volumes
-	StagingDir string // e.g. /backup/tmp
-	Logf       func(string, ...any)
+	Cron        *cron.Cron
+	Destination backend.BackupDestination
+	Docker      *client.Client
+	VolumeRoot  string // usually /var/lib/docker/volumes
+	StagingDir  string // e.g. /backup/tmp
+	Logf        func(string, ...any)
 }
 
-func New(repo *restic.RepoConfig, docker *client.Client, volRoot, staging string, logf func(string, ...any)) *Runner {
+func New(destination backend.BackupDestination, docker *client.Client, volRoot, staging string, logf func(string, ...any)) *Runner {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
 	return &Runner{
-		Cron: cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
-		Repo: repo, Docker: docker, VolumeRoot: volRoot, StagingDir: staging, Logf: logf,
+		Cron:        cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
+		Destination: destination, Docker: docker, VolumeRoot: volRoot, StagingDir: staging, Logf: logf,
 	}
 }
 
@@ -111,11 +111,11 @@ func (r *Runner) backupVolume(ctx context.Context, t model.BackupTarget) error {
 	for _, p := range t.Paths {
 		paths = append(paths, filepath.Join(r.VolumeRoot, t.VolumeName, "_data", p))
 	}
-	_, err := r.Repo.Backup(ctx, string(t.Repo), paths, t.Tags, t.Exclude)
+	_, err := r.Destination.Backup(ctx, paths, t.Tags, t.Exclude)
 	if err != nil {
 		return err
 	}
-	_, _ = r.Repo.ForgetPrune(ctx, string(t.Repo), t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
+	_, _ = r.Destination.DeleteOldSnapshots(ctx, t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
 	return nil
 }
 
@@ -143,14 +143,11 @@ func (r *Runner) backupDB(ctx context.Context, t model.BackupTarget) error {
 		return fmt.Errorf("dump failed: %w", err)
 	}
 
-	// restic backup
-	_, err := r.Repo.Backup(ctx, string(t.Repo), []string{dumpFile}, t.Tags, t.Exclude)
+	_, err := r.Destination.Backup(ctx, []string{dumpFile}, t.Tags, t.Exclude)
 	if err != nil {
 		return err
 	}
-	_, _ = r.Repo.ForgetPrune(ctx, string(t.Repo), t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
-
-	// Cleanup (best-effort)
+	_, _ = r.Destination.DeleteOldSnapshots(ctx, t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
 	_, _ = docker.ExecInContainer(ctx, r.Docker, t.ContainerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", dumpDir)})
 	return nil
 }

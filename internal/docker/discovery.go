@@ -55,9 +55,6 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 		if !helpers.ParseBool(lbl[labels.LEnabled]) {
 			continue
 		}
-		if typ := lbl[labels.LType]; typ != "" && typ != string(model.TargetVolume) {
-			continue
-		}
 
 		sched := lbl[labels.LSchedule]
 		if sched == "" {
@@ -72,7 +69,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 			Name:         v.Name,
 			Type:         model.TargetVolume,
 			Schedule:     sched,
-			Repo:         model.RepoAlias(lbl[labels.LRepo]),
+			Destination:  model.DestinationID(lbl[labels.LDestination]),
 			Retention:    helpers.ParseRetention(lbl[labels.LRetention]),
 			Exclude:      helpers.SplitCSV(lbl[labels.LExclude]),
 			Tags:         helpers.SplitCSV(lbl[labels.LTags]),
@@ -95,9 +92,6 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 		if !helpers.ParseBool(lbl[labels.LEnabled]) {
 			continue
 		}
-		if lbl[labels.LType] != string(model.TargetDB) {
-			continue
-		}
 
 		db := lbl[labels.LDBKind]
 		if db == "" {
@@ -114,7 +108,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 			Name:        firstNonEmpty(c.Names...),
 			Type:        model.TargetDB,
 			Schedule:    sched,
-			Repo:        model.RepoAlias(lbl[labels.LRepo]),
+			Destination: model.DestinationID(lbl[labels.LDestination]),
 			Retention:   helpers.ParseRetention(lbl[labels.LRetention]),
 			Exclude:     helpers.SplitCSV(lbl[labels.LExclude]),
 			Tags:        helpers.SplitCSV(lbl[labels.LTags]),

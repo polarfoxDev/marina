@@ -11,20 +11,20 @@ const (
 	TargetDB     TargetType = "db"
 )
 
-type RepoAlias string
+type DestinationID string
 
 // What we back up (one unit of work)
 type BackupTarget struct {
-	ID        string     // stable identifier; for volume: "volume:<name>", for DB container: "container:<id>"
-	Name      string     // human label (volume name or container name)
-	Type      TargetType // volume|db
-	Schedule  string     // cron "0 3 * * *"
-	Repo      RepoAlias  // e.g. "s3:default"
-	Retention Retention
-	Exclude   []string
-	Tags      []string
-	PreHook   string // command inside app/DB container (optional)
-	PostHook  string
+	ID          string        // stable identifier; for volume: "volume:<name>", for DB container: "container:<id>"
+	Name        string        // human label (volume name or container name)
+	Type        TargetType    // volume|db
+	Schedule    string        // cron "0 3 * * *"
+	Destination DestinationID // e.g. "hetzner-s3"
+	Retention   Retention
+	Exclude     []string
+	Tags        []string
+	PreHook     string // command inside app/DB container (optional)
+	PostHook    string
 	// Volume specifics
 	VolumeName   string
 	Paths        []string // default ["/"]

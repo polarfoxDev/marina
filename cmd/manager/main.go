@@ -8,8 +8,8 @@ import (
 
 	"github.com/docker/docker/client"
 
+	"github.com/polarfoxDev/marina/internal/backend"
 	dockerd "github.com/polarfoxDev/marina/internal/docker"
-	"github.com/polarfoxDev/marina/internal/restic"
 	"github.com/polarfoxDev/marina/internal/runner"
 )
 
@@ -17,12 +17,9 @@ func main() {
 	ctx := context.Background()
 
 	// repo aliases & env (pull from env/secrets in your compose)
-	repo := &restic.RepoConfig{
-		Aliases: map[string]string{
-			"s3:default": os.Getenv("RESTIC_REPOSITORY_S3_DEFAULT"),
-			"hzb:main":   os.Getenv("RESTIC_REPOSITORY_HZB_MAIN"),
-		},
+	destination := &backend.BackupDestination{
 		Env: map[string]string{
+			"RESTIC_REPOSITORY":     os.Getenv("RESTIC_REPOSITORY"),
 			"RESTIC_PASSWORD_FILE":  os.Getenv("RESTIC_PASSWORD_FILE"),
 			"AWS_ACCESS_KEY_ID":     os.Getenv("AWS_ACCESS_KEY_ID"),
 			"AWS_SECRET_ACCESS_KEY": os.Getenv("AWS_SECRET_ACCESS_KEY"),
@@ -42,7 +39,7 @@ func main() {
 	log.Printf("discovered %d targets", len(targets))
 
 	dcli, _ := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	r := runner.New(repo, dcli,
+	r := runner.New(*destination, dcli,
 		envDefault("VOLUME_ROOT", "/var/lib/docker/volumes"),
 		envDefault("STAGING_DIR", "/backup/tmp"),
 		log.Printf,

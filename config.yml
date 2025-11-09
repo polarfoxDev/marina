@@ -1,0 +1,19 @@
+destinations:
+  - id: hetzner-s3
+    repository: s3:https://fsn1.your-objectstorage.com/restic12t681
+    env:
+      AWS_ACCESS_KEY_ID: your-access-key
+      AWS_SECRET_ACCESS_KEY: your-secret-key
+      AWS_DEFAULT_REGION: fsn1
+      RESTIC_PASSWORD: your-restic-password
+  - id: local-backup
+    repository: /mnt/backup/restic
+    env:
+      RESTIC_PASSWORD: your-restic-password
+  - id: env-example
+    repository: s3:https://nyc3.digitaloceanspaces.com/my-backup-bucket
+    env:
+      AWS_ACCESS_KEY_ID: ${DO_SPACES_KEY}
+      AWS_SECRET_ACCESS_KEY: ${DO_SPACES_SECRET}
+      AWS_DEFAULT_REGION: nyc3
+      RESTIC_PASSWORD: ${RESTIC_PASS}

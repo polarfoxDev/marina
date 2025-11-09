@@ -1,13 +1,12 @@
 package labels
 
 const (
-	LEnabled   = "eu.polarnight.marina.enabled"
-	LType      = "eu.polarnight.marina.type"
-	LSchedule  = "eu.polarnight.marina.schedule"
-	LRepo      = "eu.polarnight.marina.repo"
-	LRetention = "eu.polarnight.marina.retention"
-	LExclude   = "eu.polarnight.marina.exclude"
-	LTags      = "eu.polarnight.marina.tags"
+	LEnabled     = "eu.polarnight.marina.enabled"
+	LSchedule    = "eu.polarnight.marina.schedule"
+	LDestination = "eu.polarnight.marina.destination"
+	LRetention   = "eu.polarnight.marina.retention"
+	LExclude     = "eu.polarnight.marina.exclude"
+	LTags        = "eu.polarnight.marina.tags"
 
 	// Volume
 	LPaths        = "eu.polarnight.marina.paths"
