@@ -6,14 +6,17 @@ Marina is a Docker label-based backup orchestrator that uses Restic as its backe
 
 **Core workflow**: Discovery (Docker labels) → Scheduling (cron jobs) → Execution (Runner) → Backend (Restic)
 
+**Dynamic Discovery**: Marina continuously monitors Docker for changes via event listener and periodic polling, automatically adding/removing/updating backup jobs without requiring restarts.
+
 ### Key Components
 
 - **`internal/config/config.go`**: Parses `config.yml` and expands environment variable references (`${VAR}` or `$VAR`)
 - **`internal/docker/discovery.go`**: Scans Docker API for volumes/containers with `eu.polarnight.marina.*` labels, builds `BackupTarget` models
-- **`internal/runner/runner.go`**: Orchestrates backup execution—handles pre/post hooks, container stop/start, and delegates to appropriate backend destination
+- **`internal/docker/events.go`**: Listens to Docker events API for real-time detection of container/volume lifecycle changes (create, destroy, start, stop)
+- **`internal/runner/runner.go`**: Orchestrates backup execution and manages dynamic job scheduling—handles pre/post hooks, container stop/start, and delegates to appropriate backend destination
 - **`internal/backend/restic.go`**: Wraps Restic CLI commands (backup, forget, prune) with repository and environment variables
 - **`internal/model/model.go`**: Defines `BackupTarget` (volume or DB), `Retention` policy, and job state
-- **`cmd/manager/main.go`**: Entry point—loads config, creates destinations map, discovers targets, creates runner with all destinations, and schedules jobs
+- **`cmd/manager/main.go`**: Entry point—loads config, creates destinations map, performs initial discovery, starts periodic rediscovery loop and event listener, and manages runner lifecycle
 
 ### Configuration System
 
@@ -56,7 +59,7 @@ All backup configuration lives in Docker labels with namespace `eu.polarnight.ma
 ```yaml
 eu.polarnight.marina.enabled: "true"
 eu.polarnight.marina.schedule: "0 3 * * *" # Standard cron (5 fields)
-eu.polarnight.marina.destination: "hetzner-s3" # Maps to config.yml
+eu.polarnight.marina.instanceID: "hetzner-s3" # Maps to config.yml
 eu.polarnight.marina.retention: "7d:14w:6m" # daily:weekly:monthly
 eu.polarnight.marina.paths: "/" # Relative to volume/_data
 eu.polarnight.marina.stopAttached: "true" # Stop containers using volume
@@ -91,7 +94,11 @@ eu.polarnight.marina.dump.args: "--clean,--if-exists"
 
 ### Critical Patterns
 
+**Dynamic job management**: Runner tracks scheduled jobs in `scheduledJobs` map (target ID → cron.EntryID); `SyncTargets()` diffs current vs new targets to add/remove/update jobs without restart
+
 **Multi-destination support**: Runner accepts a map of `BackupDestination` objects keyed by ID; each backup target references a destination by ID, and the runner looks it up at execution time
+
+**Event debouncing**: Docker event listener debounces events (2s delay) to prevent excessive rediscovery during rapid container lifecycle changes (e.g., compose down/up)
 
 **Deferred cleanup**: Pre/post hooks and container restarts use `defer` to ensure cleanup even on error (see `runner.go`)
 

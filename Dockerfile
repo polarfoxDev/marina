@@ -47,6 +47,8 @@ FROM alpine:3.20 AS runner
 WORKDIR /
 RUN apk add --no-cache ca-certificates bash curl coreutils tzdata \
     && adduser -D -u 10001 marina \
+    && mkdir -p /backup/restic /backup/tmp \
+    && chown -R marina:marina /backup \
     && update-ca-certificates
 COPY --from=build /out/marina /usr/local/bin/marina
 COPY --from=restic /usr/local/bin/restic /usr/local/bin/restic

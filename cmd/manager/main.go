@@ -58,13 +58,6 @@ func main() {
 	}
 	log.Printf("discovered %d targets", len(targets))
 
-	// Validate that all targets reference valid instances
-	for _, t := range targets {
-		if _, ok := instances[string(t.InstanceID)]; !ok {
-			log.Printf("WARNING: target %s references unknown instance %q, skipping", t.ID, t.InstanceID)
-		}
-	}
-
 	// Create Docker client
 	dcli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -80,18 +73,59 @@ func main() {
 		log.Printf,
 	)
 
-	// Schedule all targets
-	for _, t := range targets {
-		if err := r.ScheduleTarget(t); err != nil {
-			log.Printf("schedule %s: %v", t.ID, err)
+	// Start the scheduler
+	r.Start()
+	log.Printf("scheduler started")
+
+	// Initial discovery and scheduling
+	targets, err = disc.Discover(ctx)
+	if err != nil {
+		log.Fatalf("initial discover: %v", err)
+	}
+	log.Printf("discovered %d targets", len(targets))
+	r.SyncTargets(targets)
+
+	// Function to trigger rediscovery
+	triggerDiscovery := func() {
+		log.Printf("triggering rediscovery...")
+		targets, err := disc.Discover(ctx)
+		if err != nil {
+			log.Printf("rediscovery failed: %v", err)
+			return
+		}
+		r.SyncTargets(targets)
+	}
+
+	// Start Docker event listener for real-time updates (if enabled)
+	enableEvents := envDefault("ENABLE_EVENTS", "true") == "true"
+	if enableEvents {
+		eventListener := dockerd.NewEventListener(dcli, triggerDiscovery, log.Printf)
+		if err := eventListener.Start(ctx); err != nil {
+			log.Printf("failed to start event listener: %v", err)
 		} else {
-			log.Printf("scheduled %s (id: %s, instance: %s, schedule: %s)", t.Name, t.ID, t.InstanceID, t.Schedule)
+			log.Printf("docker event listener started")
 		}
 	}
 
-	// Start the scheduler
-	r.Start()
-	log.Printf("scheduler started, waiting for jobs...")
+	// Start periodic rediscovery to handle dynamic changes
+	rediscoveryInterval := envDefaultDuration("DISCOVERY_INTERVAL", 30*time.Second)
+	log.Printf("starting periodic discovery (interval: %v)", rediscoveryInterval)
+
+	ticker := time.NewTicker(rediscoveryInterval)
+	defer ticker.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				triggerDiscovery()
+			}
+		}
+	}()
+
+	log.Printf("marina is running, press Ctrl+C to stop...")
 
 	// Keep running until context is cancelled
 	<-ctx.Done()
@@ -109,4 +143,17 @@ func envDefault(k, def string) string {
 		return def
 	}
 	return v
+}
+
+func envDefaultDuration(k string, def time.Duration) time.Duration {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		log.Printf("invalid duration for %s: %v, using default %v", k, err, def)
+		return def
+	}
+	return d
 }

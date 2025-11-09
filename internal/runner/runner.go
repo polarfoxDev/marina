@@ -23,6 +23,10 @@ type Runner struct {
 	VolumeRoot      string // usually /var/lib/docker/volumes
 	StagingDir      string // e.g. /backup/tmp
 	Logf            func(string, ...any)
+
+	// Track scheduled jobs for dynamic updates
+	scheduledJobs map[string]cron.EntryID       // target ID -> cron entry ID
+	targets       map[string]model.BackupTarget // target ID -> target config
 }
 
 func New(instances map[string]*backend.BackupInstance, docker *client.Client, volRoot, staging string, logf func(string, ...any)) *Runner {
@@ -36,11 +40,28 @@ func New(instances map[string]*backend.BackupInstance, docker *client.Client, vo
 		VolumeRoot:      volRoot,
 		StagingDir:      staging,
 		Logf:            logf,
+		scheduledJobs:   make(map[string]cron.EntryID),
+		targets:         make(map[string]model.BackupTarget),
 	}
 }
 
 func (r *Runner) ScheduleTarget(t model.BackupTarget) error {
-	_, err := r.Cron.AddFunc(t.Schedule, func() {
+	// Check if already scheduled
+	if existingEntry, ok := r.scheduledJobs[t.ID]; ok {
+		// Check if schedule or config changed
+		if existing, found := r.targets[t.ID]; found {
+			if existing.Schedule == t.Schedule && targetsEqual(existing, t) {
+				// No changes, skip
+				return nil
+			}
+		}
+		// Remove old entry
+		r.Cron.Remove(existingEntry)
+		delete(r.scheduledJobs, t.ID)
+	}
+
+	// Schedule new job
+	entryID, err := r.Cron.AddFunc(t.Schedule, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
 		defer cancel()
 		if err := r.runOnce(ctx, t); err != nil {
@@ -49,7 +70,80 @@ func (r *Runner) ScheduleTarget(t model.BackupTarget) error {
 			r.Logf("job %s done", t.ID)
 		}
 	})
-	return err
+	if err != nil {
+		return err
+	}
+
+	r.scheduledJobs[t.ID] = entryID
+	r.targets[t.ID] = t
+	return nil
+}
+
+// RemoveTarget removes a scheduled backup target
+func (r *Runner) RemoveTarget(targetID string) {
+	if entryID, ok := r.scheduledJobs[targetID]; ok {
+		r.Cron.Remove(entryID)
+		delete(r.scheduledJobs, targetID)
+		delete(r.targets, targetID)
+	}
+}
+
+// SyncTargets updates the scheduler with a new set of discovered targets
+// Adds new targets, removes deleted ones, and updates changed ones
+func (r *Runner) SyncTargets(newTargets []model.BackupTarget) {
+	r.Logf("syncing %d discovered targets...", len(newTargets))
+	newSet := make(map[string]model.BackupTarget)
+	for _, t := range newTargets {
+		newSet[t.ID] = t
+	}
+
+	// Remove targets that no longer exist
+	for id := range r.targets {
+		if _, exists := newSet[id]; !exists {
+			r.Logf("removing target %s (no longer exists)", id)
+			r.RemoveTarget(id)
+		}
+	}
+
+	// Add or update targets
+	for id, t := range newSet {
+		// Validate instance exists
+		if _, ok := r.BackupInstances[string(t.InstanceID)]; !ok {
+			r.Logf("WARNING: target %s references unknown instance %q, skipping", id, t.InstanceID)
+			continue
+		}
+
+		// Check if it's new or changed BEFORE scheduling
+		existing, found := r.targets[id]
+		isNew := !found
+		isChanged := found && !targetsEqual(existing, t)
+
+		if err := r.ScheduleTarget(t); err != nil {
+			r.Logf("schedule %s: %v", id, err)
+		} else {
+			// Only log if it's new or changed
+			if isNew || isChanged {
+				r.Logf("scheduled %s (name: %s, instance: %s, schedule: %s)", id, t.Name, t.InstanceID, t.Schedule)
+			}
+		}
+	}
+}
+
+// targetsEqual checks if two targets are functionally equivalent
+func targetsEqual(a, b model.BackupTarget) bool {
+	return a.Schedule == b.Schedule &&
+		a.InstanceID == b.InstanceID &&
+		a.Type == b.Type &&
+		a.StopAttached == b.StopAttached &&
+		a.PreHook == b.PreHook &&
+		a.PostHook == b.PostHook &&
+		strings.Join(a.Paths, ",") == strings.Join(b.Paths, ",") &&
+		strings.Join(a.Tags, ",") == strings.Join(b.Tags, ",") &&
+		strings.Join(a.Exclude, ",") == strings.Join(b.Exclude, ",") &&
+		strings.Join(a.DumpArgs, ",") == strings.Join(b.DumpArgs, ",") &&
+		a.Retention.KeepDaily == b.Retention.KeepDaily &&
+		a.Retention.KeepWeekly == b.Retention.KeepWeekly &&
+		a.Retention.KeepMonthly == b.Retention.KeepMonthly
 }
 
 func (r *Runner) Start()                   { r.Cron.Start() }

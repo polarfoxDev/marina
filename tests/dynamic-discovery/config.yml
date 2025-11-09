@@ -1,0 +1,10 @@
+instances:
+  - id: local-backup
+    repository: /backup/restic
+    env:
+      RESTIC_PASSWORD: changeme
+
+# Optional: Default settings for all backup targets
+defaultSchedule: "0 2 * * *"
+defaultRetention: "7d:4w:6m"
+defaultStopAttached: false

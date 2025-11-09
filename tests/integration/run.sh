@@ -8,7 +8,7 @@ set -euo pipefail
 # 4. Exec into marina container and list restic snapshots
 # 5. Require at least one snapshot for each target kind
 
-COMPOSE_FILE=integration/docker-compose.integration.yml
+COMPOSE_FILE=tests/integration/docker-compose.integration.yml
 IMAGE_TAG=${IMAGE_TAG:-marina:latest}
 REQ_DB_KINDS=(postgres mysql mariadb mongo redis)
 RESTIC_PASSWORD="testpass"

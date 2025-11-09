@@ -26,3 +26,7 @@ instances:
 defaultSchedule: "0 2 * * *" # Cron format: minute hour day month weekday
 defaultRetention: "14d:8w:12m" # Format: daily:weekly:monthly
 defaultStopAttached: true # Stop containers when backing up volumes
+
+# Dynamic discovery settings (can also be set via environment variables):
+# DISCOVERY_INTERVAL: How often to poll for container/volume changes (default: 30s)
+# ENABLE_EVENTS: Enable Docker event listener for real-time updates (default: true)
