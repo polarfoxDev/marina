@@ -1,0 +1,71 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"regexp"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Config represents the complete configuration file
+type Config struct {
+	Destinations []Destination `yaml:"destinations"`
+}
+
+// Destination represents a backup destination configuration
+type Destination struct {
+	ID         string            `yaml:"id"`
+	Repository string            `yaml:"repository"`
+	Env        map[string]string `yaml:"env"`
+}
+
+// Load reads and parses the config file, expanding environment variables
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	// Expand environment variables in all fields
+	for i := range cfg.Destinations {
+		cfg.Destinations[i].Repository = expandEnv(cfg.Destinations[i].Repository)
+		for k, v := range cfg.Destinations[i].Env {
+			cfg.Destinations[i].Env[k] = expandEnv(v)
+		}
+	}
+
+	return &cfg, nil
+}
+
+// expandEnv expands environment variable references in the format ${VAR} or $VAR
+func expandEnv(s string) string {
+	// Match ${VAR} or $VAR patterns
+	re := regexp.MustCompile(`\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
+	return re.ReplaceAllStringFunc(s, func(match string) string {
+		// Extract variable name
+		var varName string
+		if match[1] == '{' {
+			varName = match[2 : len(match)-1] // ${VAR}
+		} else {
+			varName = match[1:] // $VAR
+		}
+		// Return environment variable value or empty string if not set
+		return os.Getenv(varName)
+	})
+}
+
+// GetDestination returns a destination by ID
+func (c *Config) GetDestination(id string) (*Destination, error) {
+	for _, dest := range c.Destinations {
+		if dest.ID == id {
+			return &dest, nil
+		}
+	}
+	return nil, fmt.Errorf("destination %q not found in config", id)
+}

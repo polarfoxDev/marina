@@ -8,11 +8,37 @@ Marina is a Docker label-based backup orchestrator that uses Restic as its backe
 
 ### Key Components
 
+- **`internal/config/config.go`**: Parses `config.yml` and expands environment variable references (`${VAR}` or `$VAR`)
 - **`internal/docker/discovery.go`**: Scans Docker API for volumes/containers with `eu.polarnight.marina.*` labels, builds `BackupTarget` models
-- **`internal/runner/runner.go`**: Orchestrates backup execution—handles pre/post hooks, container stop/start, and delegates to backend
-- **`internal/backend/restic.go`**: Wraps Restic CLI commands (backup, forget, prune) with environment variables
+- **`internal/runner/runner.go`**: Orchestrates backup execution—handles pre/post hooks, container stop/start, and delegates to appropriate backend destination
+- **`internal/backend/restic.go`**: Wraps Restic CLI commands (backup, forget, prune) with repository and environment variables
 - **`internal/model/model.go`**: Defines `BackupTarget` (volume or DB), `Retention` policy, and job state
-- **`cmd/manager/main.go`**: Entry point—creates discoverer, runner, schedules all targets, and blocks
+- **`cmd/manager/main.go`**: Entry point—loads config, creates destinations map, discovers targets, creates runner with all destinations, and schedules jobs
+
+### Configuration System
+
+Marina uses a two-tier configuration approach:
+
+1. **`config.yml`**: Defines backup destinations (repositories and credentials)
+2. **Docker labels**: Define what to backup, when, and to which destination
+
+**config.yml structure** (supports environment variable expansion):
+
+```yaml
+destinations:
+  - id: hetzner-s3
+    repository: s3:https://fsn1.your-objectstorage.com/bucket
+    env:
+      AWS_ACCESS_KEY_ID: ${AWS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET}
+      RESTIC_PASSWORD: ${RESTIC_PASS}
+  - id: local-backup
+    repository: /mnt/backup/restic
+    env:
+      RESTIC_PASSWORD: direct-value-also-works
+```
+
+Environment variables in config.yml are expanded using `${VAR_NAME}` or `$VAR_NAME` syntax.
 
 ### Label-Driven Configuration
 
@@ -22,7 +48,6 @@ All backup configuration lives in Docker labels with namespace `eu.polarnight.ma
 
 ```yaml
 eu.polarnight.marina.enabled: "true"
-eu.polarnight.marina.type: "volume"
 eu.polarnight.marina.schedule: "0 3 * * *" # Standard cron (5 fields)
 eu.polarnight.marina.destination: "hetzner-s3" # Maps to config.yml
 eu.polarnight.marina.retention: "7d:14w:6m" # daily:weekly:monthly
@@ -33,7 +58,6 @@ eu.polarnight.marina.stopAttached: "true" # Stop containers using volume
 **DB backup labels** (on DB containers):
 
 ```yaml
-eu.polarnight.marina.type: "db"
 eu.polarnight.marina.db: "postgres" # postgres|mysql|mariadb|mongo|redis
 eu.polarnight.marina.dump.args: "--clean,--if-exists"
 ```
@@ -60,15 +84,19 @@ eu.polarnight.marina.dump.args: "--clean,--if-exists"
 
 ### Critical Patterns
 
-**Deferred cleanup**: Pre/post hooks and container restarts use `defer` to ensure cleanup even on error (see `runner.go:75-79, 89-101, 129-133`)
+**Multi-destination support**: Runner accepts a map of `BackupDestination` objects keyed by ID; each backup target references a destination by ID, and the runner looks it up at execution time
 
-**Read-only volume detection**: Skips stopping containers mounted with `Mode == "ro"` to avoid unnecessary disruption (`runner.go:96-100`)
+**Deferred cleanup**: Pre/post hooks and container restarts use `defer` to ensure cleanup even on error (see `runner.go`)
+
+**Read-only volume detection**: Skips stopping containers mounted with `Mode == "ro"` to avoid unnecessary disruption
 
 **Cron parser**: Uses `robfig/cron/v3` with 5-field standard format (minute hour dom month dow), not 6-field with seconds
 
-**Shell invocation**: All hooks/dumps use `/bin/sh -lc` to ensure login shell and proper env loading (`runner.go:76, 130, 138, 145`)
+**Shell invocation**: All hooks/dumps use `/bin/sh -lc` to ensure login shell and proper env loading
 
 **Error handling**: Errors bubble up but post-hooks/cleanup still execute via defer; runner logs job failures but continues scheduling
+
+**Environment variable expansion**: Config loader uses regex to match `${VAR}` and `$VAR` patterns and expands them using `os.Getenv()`
 
 ## Development Workflows
 
@@ -77,10 +105,16 @@ eu.polarnight.marina.dump.args: "--clean,--if-exists"
 **Run locally** (requires Docker socket):
 
 ```bash
-export RESTIC_REPOSITORY=/tmp/test-repo
+# Set up environment variables referenced in config.yml
 export RESTIC_PASSWORD=test
-export VOLUME_ROOT=/var/lib/docker/volumes
-export STAGING_DIR=/tmp/marina-staging
+export AWS_ACCESS_KEY_ID=your-key
+export AWS_SECRET_ACCESS_KEY=your-secret
+
+# Run with config file
+./marina
+
+# Or specify custom config location
+export CONFIG_FILE=/path/to/config.yml
 ./marina
 ```
 
@@ -99,7 +133,7 @@ targets, _ := disc.Discover(ctx)
 - **Error wrapping**: Use `fmt.Errorf("context: %w", err)` for wrappable errors throughout
 - **Logging**: Runner accepts `Logf func(string, ...any)` for structured logging flexibility
 - **No tests**: Project currently has no test files; consider adding for `helpers/` parsing logic
-- **Config format**: `config.yml` will define backup destinations (mapped by ID); `main.go` is WIP and currently uses env vars directly—will eventually parse config.yml
+- **Config format**: `config.yml` defines backup destinations (mapped by ID); destinations include repository URL and environment variables (credentials, etc.)
 - **Configuration philosophy**: Backup destinations in config.yml, all other configuration (schedule, retention, hooks) via Docker labels
 
 ## Planned Features
@@ -116,3 +150,7 @@ See `docker-compose.example.yml` for a complete deployment example with:
 - Volume and database backup examples with labels
 - Staging directory mount for DB dumps
 - S3/local backend configuration
+
+## Context
+
+Use context7 MCP to check how to do stuff in the current Go version.

@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 )
 
 type BackupDestination struct {
-	Env map[string]string
+	ID         string
+	Repository string
+	Env        map[string]string
 }
 
 func (p *BackupDestination) Close() error { return nil }
@@ -16,6 +19,9 @@ func (p *BackupDestination) Close() error { return nil }
 func (c *BackupDestination) runRestic(ctx context.Context, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "restic", args...)
+	// Set repository
+	cmd.Env = append(os.Environ(), "RESTIC_REPOSITORY="+c.Repository)
+	// Add custom environment variables
 	for k, v := range c.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -29,7 +35,14 @@ func (c *BackupDestination) runRestic(ctx context.Context, args ...string) (stri
 }
 
 func (p *BackupDestination) Init(ctx context.Context) error {
-	_, err := p.runRestic(ctx, "init")
+	// Check if already initialized by running 'restic snapshots'
+	_, err := p.runRestic(ctx, "snapshots")
+	if err == nil {
+		// Repository is initialized
+		return nil
+	}
+	// If not initialized, run 'restic init'
+	_, err = p.runRestic(ctx, "init")
 	return err
 }
 

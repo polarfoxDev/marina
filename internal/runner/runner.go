@@ -16,21 +16,25 @@ import (
 )
 
 type Runner struct {
-	Cron        *cron.Cron
-	Destination backend.BackupDestination
-	Docker      *client.Client
-	VolumeRoot  string // usually /var/lib/docker/volumes
-	StagingDir  string // e.g. /backup/tmp
-	Logf        func(string, ...any)
+	Cron         *cron.Cron
+	Destinations map[string]*backend.BackupDestination // keyed by destination ID
+	Docker       *client.Client
+	VolumeRoot   string // usually /var/lib/docker/volumes
+	StagingDir   string // e.g. /backup/tmp
+	Logf         func(string, ...any)
 }
 
-func New(destination backend.BackupDestination, docker *client.Client, volRoot, staging string, logf func(string, ...any)) *Runner {
+func New(destinations map[string]*backend.BackupDestination, docker *client.Client, volRoot, staging string, logf func(string, ...any)) *Runner {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
 	return &Runner{
-		Cron:        cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
-		Destination: destination, Docker: docker, VolumeRoot: volRoot, StagingDir: staging, Logf: logf,
+		Cron:         cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
+		Destinations: destinations,
+		Docker:       docker,
+		VolumeRoot:   volRoot,
+		StagingDir:   staging,
+		Logf:         logf,
 	}
 }
 
@@ -66,6 +70,12 @@ func (r *Runner) runOnce(ctx context.Context, t model.BackupTarget) error {
 }
 
 func (r *Runner) backupVolume(ctx context.Context, t model.BackupTarget) error {
+	// Get the destination for this target
+	dest, ok := r.Destinations[string(t.Destination)]
+	if !ok {
+		return fmt.Errorf("destination %q not found", t.Destination)
+	}
+
 	// Optionally call pre hook in first attached container
 	if t.PreHook != "" && len(t.AttachedCtrs) > 0 {
 		if _, err := docker.ExecInContainer(ctx, r.Docker, t.AttachedCtrs[0], []string{"/bin/sh", "-lc", t.PreHook}); err != nil {
@@ -111,15 +121,21 @@ func (r *Runner) backupVolume(ctx context.Context, t model.BackupTarget) error {
 	for _, p := range t.Paths {
 		paths = append(paths, filepath.Join(r.VolumeRoot, t.VolumeName, "_data", p))
 	}
-	_, err := r.Destination.Backup(ctx, paths, t.Tags, t.Exclude)
+	_, err := dest.Backup(ctx, paths, t.Tags, t.Exclude)
 	if err != nil {
 		return err
 	}
-	_, _ = r.Destination.DeleteOldSnapshots(ctx, t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
+	_, _ = dest.DeleteOldSnapshots(ctx, t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
 	return nil
 }
 
 func (r *Runner) backupDB(ctx context.Context, t model.BackupTarget) error {
+	// Get the destination for this target
+	dest, ok := r.Destinations[string(t.Destination)]
+	if !ok {
+		return fmt.Errorf("destination %q not found", t.Destination)
+	}
+
 	// Pre hook
 	if t.PreHook != "" {
 		if _, err := docker.ExecInContainer(ctx, r.Docker, t.ContainerID, []string{"/bin/sh", "-lc", t.PreHook}); err != nil {
@@ -143,11 +159,11 @@ func (r *Runner) backupDB(ctx context.Context, t model.BackupTarget) error {
 		return fmt.Errorf("dump failed: %w", err)
 	}
 
-	_, err := r.Destination.Backup(ctx, []string{dumpFile}, t.Tags, t.Exclude)
+	_, err := dest.Backup(ctx, []string{dumpFile}, t.Tags, t.Exclude)
 	if err != nil {
 		return err
 	}
-	_, _ = r.Destination.DeleteOldSnapshots(ctx, t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
+	_, _ = dest.DeleteOldSnapshots(ctx, t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
 	_, _ = docker.ExecInContainer(ctx, r.Docker, t.ContainerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", dumpDir)})
 	return nil
 }

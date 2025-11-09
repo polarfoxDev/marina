@@ -17,13 +17,15 @@ services:
       # Configuration file
       - ./config.yml:/app/config.yml:ro
     environment:
-      # Restic repository configuration (will be replaced by config.yml parsing)
-      RESTIC_REPOSITORY: "s3:https://s3.eu-central-1.amazonaws.com/my-backup-bucket"
+      # Environment variables that can be referenced in config.yml
+      # using ${VAR_NAME} or $VAR_NAME syntax
       RESTIC_PASSWORD: "${RESTIC_PASSWORD}"
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
-      AWS_DEFAULT_REGION: "eu-central-1"
-      # Marina configuration
+      DO_SPACES_KEY: "${DO_SPACES_KEY}"
+      DO_SPACES_SECRET: "${DO_SPACES_SECRET}"
+      # Marina runtime configuration
+      CONFIG_FILE: "/app/config.yml"
       VOLUME_ROOT: "/var/lib/docker/volumes"
       STAGING_DIR: "/backup/tmp"
     networks:
