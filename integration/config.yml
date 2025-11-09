@@ -1,0 +1,9 @@
+destinations:
+  - id: local-integration
+    repository: /backup/repo
+    env:
+      RESTIC_PASSWORD: testpass
+
+# Defaults (can be overridden by labels)
+defaultSchedule: "* * * * *"
+defaultRetention: "7d:4w:6m"

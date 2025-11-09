@@ -85,7 +85,7 @@ func main() {
 		if err := r.ScheduleTarget(t); err != nil {
 			log.Printf("schedule %s: %v", t.ID, err)
 		} else {
-			log.Printf("scheduled %s (destination: %s, schedule: %s)", t.ID, t.Destination, t.Schedule)
+			log.Printf("scheduled %s (id: %s, destination: %s, schedule: %s)", t.Name, t.ID, t.Destination, t.Schedule)
 		}
 	}
 

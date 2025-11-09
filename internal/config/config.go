@@ -65,9 +65,10 @@ func expandEnv(s string) string {
 
 // GetDestination returns a destination by ID
 func (c *Config) GetDestination(id string) (*Destination, error) {
-	for _, dest := range c.Destinations {
-		if dest.ID == id {
-			return &dest, nil
+	// IMPORTANT: must return pointer to slice element, not loop variable copy.
+	for i := range c.Destinations {
+		if c.Destinations[i].ID == id {
+			return &c.Destinations[i], nil
 		}
 	}
 	return nil, fmt.Errorf("destination %q not found in config", id)

@@ -1,1 +1,4 @@
+integration/.env
+integration/.tmp/
+integration/*.log
 marina
