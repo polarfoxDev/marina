@@ -21,8 +21,7 @@ func TestLoad_EnvExpansionAndGetDestination(t *testing.T) {
 	t.Setenv("AWS_SECRET", "sec456")
 	t.Setenv("RESTIC_PASS", "restic-pass")
 	cfgYAML := `
- destinaTions:  # yaml is case-insensitive structurally? keep correct key
- destinations:
+ instances:
    - id: hetzner-s3
      repository: s3:https://fsn1.example.com/bucket
      env:
