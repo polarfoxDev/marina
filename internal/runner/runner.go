@@ -286,17 +286,20 @@ func (r *Runner) backupDB(ctx context.Context, target model.BackupTarget) error 
 func buildDumpCmd(t model.BackupTarget, dumpDir string) (cmd string, output string, err error) {
 	switch t.DBKind {
 	case "postgres":
-		file := filepath.Join(dumpDir, "dump.pgcustom")
-		// expect PGPASSWORD etc already present in container env
-		args := stringsJoin(append([]string{"pg_dump", "-Fc"}, t.DumpArgs...)...)
+		file := filepath.Join(dumpDir, "dump.sql")
+		// Use pg_dumpall to dump all databases with postgres user
+		// PGPASSWORD env var should be set in container
+		args := stringsJoin(append([]string{"pg_dumpall", "-U", "postgres"}, t.DumpArgs...)...)
 		return fmt.Sprintf("%s > %q", args, file), file, nil
 	case "mysql":
 		file := filepath.Join(dumpDir, "dump.sql")
-		args := stringsJoin(append([]string{"mysqldump", "--single-transaction"}, t.DumpArgs...)...)
+		// Use --all-databases to dump everything
+		args := stringsJoin(append([]string{"mysqldump", "--single-transaction", "--all-databases"}, t.DumpArgs...)...)
 		return fmt.Sprintf("%s > %q", args, file), file, nil
 	case "mariadb":
 		file := filepath.Join(dumpDir, "dump.sql")
-		args := stringsJoin(append([]string{"mariadb-dump", "--single-transaction"}, t.DumpArgs...)...)
+		// Use --all-databases to dump everything
+		args := stringsJoin(append([]string{"mariadb-dump", "--single-transaction", "--all-databases"}, t.DumpArgs...)...)
 		return fmt.Sprintf("%s > %q", args, file), file, nil
 	case "mongo":
 		file := filepath.Join(dumpDir, "dump.archive")

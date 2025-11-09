@@ -27,6 +27,7 @@ services:
       - POSTGRES_PASSWORD=pgpass
       - POSTGRES_DB=testdb
       - POSTGRES_USER=postgres
+      - PGPASSWORD=pgpass
     labels:
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.db: "postgres"
@@ -39,6 +40,7 @@ services:
     container_name: mysql-it
     environment:
       - MYSQL_ROOT_PASSWORD=mysqlpass
+      - MYSQL_PWD=mysqlpass
     labels:
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.db: "mysql"
@@ -51,6 +53,7 @@ services:
     container_name: mariadb-it
     environment:
       - MARIADB_ROOT_PASSWORD=maripass
+      - MYSQL_PWD=maripass
     labels:
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.db: "mariadb"

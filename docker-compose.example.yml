@@ -40,6 +40,8 @@ services:
       POSTGRES_DB: myapp
       POSTGRES_USER: myapp
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      # Required for pg_dumpall to authenticate
+      PGPASSWORD: "${POSTGRES_PASSWORD}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       # Mount staging dir for dumps (Marina will exec inside this container)
@@ -52,10 +54,63 @@ services:
       eu.polarnight.marina.instanceID: "hetzner-s3"
       eu.polarnight.marina.retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
       eu.polarnight.marina.tags: "service:postgres,env:production"
-      eu.polarnight.marina.dump.args: "--clean,--if-exists,--no-owner,--no-acl"
+      # Optional: custom pg_dumpall arguments (--all-databases is default)
+      # eu.polarnight.marina.dump.args: "--clean,--if-exists"
       # Optional: pre/post hooks for consistency
       eu.polarnight.marina.pre: "psql -U myapp -c 'CHECKPOINT;'"
       eu.polarnight.marina.post: "echo 'Backup completed'"
+    networks:
+      - backup-net
+      - app-net
+
+  # Example: MySQL database with backup labels
+  mysql:
+    image: mysql:8.4
+    container_name: app-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+      MYSQL_DATABASE: myapp
+      # Required for mysqldump to authenticate without password prompt
+      MYSQL_PWD: "${MYSQL_ROOT_PASSWORD}"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - marina-staging:/backup/tmp
+    labels:
+      eu.polarnight.marina.enabled: "true"
+      eu.polarnight.marina.db: "mysql"
+      eu.polarnight.marina.schedule: "30 2 * * *"
+      eu.polarnight.marina.instanceID: "hetzner-s3"
+      eu.polarnight.marina.retention: "7d:4w:6m"
+      eu.polarnight.marina.tags: "service:mysql,env:production"
+      # Optional: custom mysqldump arguments (--all-databases is default)
+      # eu.polarnight.marina.dump.args: "--routines,--triggers"
+    networks:
+      - backup-net
+      - app-net
+
+  # Example: MariaDB database with backup labels
+  mariadb:
+    image: mariadb:11
+    container_name: app-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD}"
+      MARIADB_DATABASE: myapp
+      # Required for mariadb-dump to authenticate without password prompt
+      MYSQL_PWD: "${MARIADB_ROOT_PASSWORD}"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      - marina-staging:/backup/tmp
+    labels:
+      eu.polarnight.marina.enabled: "true"
+      eu.polarnight.marina.db: "mariadb"
+      eu.polarnight.marina.schedule: "30 2 * * *"
+      eu.polarnight.marina.instanceID: "hetzner-s3"
+      eu.polarnight.marina.retention: "7d:4w:6m"
+      eu.polarnight.marina.tags: "service:mariadb,env:production"
+      # Optional: custom mariadb-dump arguments (--all-databases is default)
+      # eu.polarnight.marina.dump.args: "--routines,--triggers"
     networks:
       - backup-net
       - app-net
@@ -80,6 +135,14 @@ volumes:
 
   # PostgreSQL data volume (backed up via DB dump, not volume backup)
   postgres-data:
+    driver: local
+
+  # MySQL data volume (backed up via DB dump, not volume backup)
+  mysql-data:
+    driver: local
+
+  # MariaDB data volume (backed up via DB dump, not volume backup)
+  mariadb-data:
     driver: local
 
   # Application uploads volume with backup labels
