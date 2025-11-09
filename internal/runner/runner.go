@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,25 +17,25 @@ import (
 )
 
 type Runner struct {
-	Cron         *cron.Cron
-	Destinations map[string]*backend.BackupDestination // keyed by destination ID
-	Docker       *client.Client
-	VolumeRoot   string // usually /var/lib/docker/volumes
-	StagingDir   string // e.g. /backup/tmp
-	Logf         func(string, ...any)
+	Cron            *cron.Cron
+	BackupInstances map[string]*backend.BackupInstance // keyed by destination ID
+	Docker          *client.Client
+	VolumeRoot      string // usually /var/lib/docker/volumes
+	StagingDir      string // e.g. /backup/tmp
+	Logf            func(string, ...any)
 }
 
-func New(destinations map[string]*backend.BackupDestination, docker *client.Client, volRoot, staging string, logf func(string, ...any)) *Runner {
+func New(instances map[string]*backend.BackupInstance, docker *client.Client, volRoot, staging string, logf func(string, ...any)) *Runner {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
 	return &Runner{
-		Cron:         cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
-		Destinations: destinations,
-		Docker:       docker,
-		VolumeRoot:   volRoot,
-		StagingDir:   staging,
-		Logf:         logf,
+		Cron:            cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
+		BackupInstances: instances,
+		Docker:          docker,
+		VolumeRoot:      volRoot,
+		StagingDir:      staging,
+		Logf:            logf,
 	}
 }
 
@@ -69,26 +70,25 @@ func (r *Runner) runOnce(ctx context.Context, t model.BackupTarget) error {
 	}
 }
 
-func (r *Runner) backupVolume(ctx context.Context, t model.BackupTarget) error {
-	// Get the destination for this target
-	dest, ok := r.Destinations[string(t.Destination)]
+func (r *Runner) backupVolume(ctx context.Context, target model.BackupTarget) error {
+	dest, ok := r.BackupInstances[string(target.InstanceID)]
 	if !ok {
-		return fmt.Errorf("destination %q not found", t.Destination)
+		return fmt.Errorf("instance %q not found", target.InstanceID)
 	}
 
 	// Optionally call pre hook in first attached container
-	if t.PreHook != "" && len(t.AttachedCtrs) > 0 {
-		if _, err := docker.ExecInContainer(ctx, r.Docker, t.AttachedCtrs[0], []string{"/bin/sh", "-lc", t.PreHook}); err != nil {
+	if target.PreHook != "" && len(target.AttachedCtrs) > 0 {
+		if _, err := docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PreHook}); err != nil {
 			return fmt.Errorf("prehook: %w", err)
 		}
 		defer func() {
-			_, _ = docker.ExecInContainer(ctx, r.Docker, t.AttachedCtrs[0], []string{"/bin/sh", "-lc", t.PostHook})
+			_, _ = docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PostHook})
 		}()
 	}
 
-	if t.StopAttached && len(t.AttachedCtrs) > 0 {
+	if target.StopAttached && len(target.AttachedCtrs) > 0 {
 		// stop all attached containers
-		for _, ctr := range t.AttachedCtrs {
+		for _, ctr := range target.AttachedCtrs {
 			// skip if already stopped
 			running, err := docker.IsContainerRunning(ctx, r.Docker, ctr)
 			if err != nil {
@@ -118,53 +118,69 @@ func (r *Runner) backupVolume(ctx context.Context, t model.BackupTarget) error {
 	}
 
 	var paths []string
-	for _, p := range t.Paths {
-		paths = append(paths, filepath.Join(r.VolumeRoot, t.VolumeName, "_data", p))
+	for _, p := range target.Paths {
+		paths = append(paths, filepath.Join(r.VolumeRoot, target.VolumeName, "_data", p))
 	}
-	_, err := dest.Backup(ctx, paths, t.Tags, t.Exclude)
+	_, err := dest.Backup(ctx, paths, target.Tags, target.Exclude)
 	if err != nil {
 		return err
 	}
-	_, _ = dest.DeleteOldSnapshots(ctx, t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
+	_, _ = dest.DeleteOldSnapshots(ctx, target.Retention.KeepDaily, target.Retention.KeepWeekly, target.Retention.KeepMonthly)
 	return nil
 }
 
-func (r *Runner) backupDB(ctx context.Context, t model.BackupTarget) error {
-	// Get the destination for this target
-	dest, ok := r.Destinations[string(t.Destination)]
+func (r *Runner) backupDB(ctx context.Context, target model.BackupTarget) error {
+	dest, ok := r.BackupInstances[string(target.InstanceID)]
 	if !ok {
-		return fmt.Errorf("destination %q not found", t.Destination)
+		return fmt.Errorf("instance %q not found", target.InstanceID)
 	}
 
 	// Pre hook
-	if t.PreHook != "" {
-		if _, err := docker.ExecInContainer(ctx, r.Docker, t.ContainerID, []string{"/bin/sh", "-lc", t.PreHook}); err != nil {
+	if target.PreHook != "" {
+		if _, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PreHook}); err != nil {
 			return fmt.Errorf("prehook: %w", err)
 		}
 		defer func() {
-			_, _ = docker.ExecInContainer(ctx, r.Docker, t.ContainerID, []string{"/bin/sh", "-lc", t.PostHook})
+			_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PostHook})
 		}()
 	}
 
-	// Dump inside the DB container into staging mounted via bind (or use `docker cp` as fallback)
+	// Dump inside the DB container into a temporary directory, then copy to local staging
 	ts := time.Now().UTC().Format("20060102-150405")
-	dumpDir := filepath.Join(r.StagingDir, "db", t.Name, ts)
-	mk := fmt.Sprintf("mkdir -p %q", dumpDir)
-	if _, err := docker.ExecInContainer(ctx, r.Docker, t.ContainerID, []string{"/bin/sh", "-lc", mk}); err != nil {
+	containerDumpDir := fmt.Sprintf("/tmp/marina-%s", ts)
+	mk := fmt.Sprintf("mkdir -p %q", containerDumpDir)
+	if _, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", mk}); err != nil {
 		return fmt.Errorf("prepare staging: %w", err)
 	}
+	defer func() {
+		_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", containerDumpDir)})
+	}()
 
-	dumpCmd, dumpFile := buildDumpCmd(t, dumpDir)
-	if _, err := docker.ExecInContainer(ctx, r.Docker, t.ContainerID, []string{"/bin/sh", "-lc", dumpCmd}); err != nil {
+	hostStagingDir := filepath.Join(r.StagingDir, "db", target.Name, ts)
+	if err := os.MkdirAll(hostStagingDir, 0o755); err != nil {
+		return fmt.Errorf("prepare host staging: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(hostStagingDir) }()
+
+	dumpCmd, dumpFile := buildDumpCmd(target, containerDumpDir)
+	if _, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", dumpCmd}); err != nil {
 		return fmt.Errorf("dump failed: %w", err)
 	}
 
-	_, err := dest.Backup(ctx, []string{dumpFile}, t.Tags, t.Exclude)
+	hostDumpPath, err := docker.CopyFileFromContainer(ctx, r.Docker, target.ContainerID, dumpFile, hostStagingDir, func(expected, written int64) {
+		if expected > 0 && expected != written {
+			r.Logf("copy warning (%s): expected %d bytes, wrote %d", target.Name, expected, written)
+		}
+	})
 	if err != nil {
 		return err
 	}
-	_, _ = dest.DeleteOldSnapshots(ctx, t.Retention.KeepDaily, t.Retention.KeepWeekly, t.Retention.KeepMonthly)
-	_, _ = docker.ExecInContainer(ctx, r.Docker, t.ContainerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", dumpDir)})
+
+	_, err = dest.Backup(ctx, []string{hostDumpPath}, target.Tags, target.Exclude)
+	if err != nil {
+		return err
+	}
+	_, _ = dest.DeleteOldSnapshots(ctx, target.Retention.KeepDaily, target.Retention.KeepWeekly, target.Retention.KeepMonthly)
 	return nil
 }
 

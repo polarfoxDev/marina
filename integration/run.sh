@@ -67,5 +67,5 @@ if [[ "$FAIL" -ne 0 ]]; then
 fi
 
 echo "Integration test PASSED"
-docker compose -f "$COMPOSE_FILE" down -v >/dev/null || true
-docker volume rm integration_testdata integration_staging
+# docker compose -f "$COMPOSE_FILE" down -v >/dev/null || true
+# docker volume rm integration_testdata integration_staging

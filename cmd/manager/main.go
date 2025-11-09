@@ -23,27 +23,27 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	// Build map of destinations from config
-	destinations := make(map[string]*backend.BackupDestination)
-	for _, dest := range cfg.Destinations {
-		destinations[dest.ID] = &backend.BackupDestination{
+	// Build map of instances from config
+	instances := make(map[string]*backend.BackupInstance)
+	for _, dest := range cfg.Instances {
+		instances[dest.ID] = &backend.BackupInstance{
 			ID:         dest.ID,
 			Repository: dest.Repository,
 			Env:        dest.Env,
 		}
-		log.Printf("loaded destination: %s -> %s", dest.ID, dest.Repository)
+		log.Printf("loaded instance: %s -> %s", dest.ID, dest.Repository)
 	}
 
-	if len(destinations) == 0 {
-		log.Fatal("no destinations configured in config.yml")
+	if len(instances) == 0 {
+		log.Fatal("no instances configured in config.yml")
 	}
 
-	// Initialize each destination repository (idempotent: checks snapshots first)
-	for id, d := range destinations {
-		if err := d.Init(ctx); err != nil {
-			log.Fatalf("init destination %s: %v", id, err)
+	// Initialize each instance repository (idempotent: checks snapshots first)
+	for id, instance := range instances {
+		if err := instance.Init(ctx); err != nil {
+			log.Fatalf("init instance %s: %v", id, err)
 		}
-		log.Printf("destination %s initialized", id)
+		log.Printf("instance %s initialized", id)
 	}
 
 	// Discover backup targets from Docker labels
@@ -58,10 +58,10 @@ func main() {
 	}
 	log.Printf("discovered %d targets", len(targets))
 
-	// Validate that all targets reference valid destinations
+	// Validate that all targets reference valid instances
 	for _, t := range targets {
-		if _, ok := destinations[string(t.Destination)]; !ok {
-			log.Printf("WARNING: target %s references unknown destination %q, skipping", t.ID, t.Destination)
+		if _, ok := instances[string(t.InstanceID)]; !ok {
+			log.Printf("WARNING: target %s references unknown instance %q, skipping", t.ID, t.InstanceID)
 		}
 	}
 
@@ -71,9 +71,9 @@ func main() {
 		log.Fatalf("docker client: %v", err)
 	}
 
-	// Create runner with all destinations
+	// Create runner with all instances
 	r := runner.New(
-		destinations,
+		instances,
 		dcli,
 		envDefault("VOLUME_ROOT", "/var/lib/docker/volumes"),
 		envDefault("STAGING_DIR", "/backup/tmp"),
@@ -85,7 +85,7 @@ func main() {
 		if err := r.ScheduleTarget(t); err != nil {
 			log.Printf("schedule %s: %v", t.ID, err)
 		} else {
-			log.Printf("scheduled %s (id: %s, destination: %s, schedule: %s)", t.Name, t.ID, t.Destination, t.Schedule)
+			log.Printf("scheduled %s (id: %s, instance: %s, schedule: %s)", t.Name, t.ID, t.InstanceID, t.Schedule)
 		}
 	}
 

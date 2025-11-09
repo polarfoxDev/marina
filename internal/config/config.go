@@ -10,14 +10,14 @@ import (
 
 // Config represents the complete configuration file
 type Config struct {
-	Destinations        []Destination `yaml:"destinations"`
-	DefaultSchedule     string        `yaml:"defaultSchedule,omitempty"`
-	DefaultRetention    string        `yaml:"defaultRetention,omitempty"`
-	DefaultStopAttached *bool         `yaml:"defaultStopAttached,omitempty"`
+	Instances           []BackupInstance `yaml:"instances"`
+	DefaultSchedule     string           `yaml:"defaultSchedule,omitempty"`
+	DefaultRetention    string           `yaml:"defaultRetention,omitempty"`
+	DefaultStopAttached *bool            `yaml:"defaultStopAttached,omitempty"`
 }
 
-// Destination represents a backup destination configuration
-type Destination struct {
+// BackupInstance represents a backup instance configuration
+type BackupInstance struct {
 	ID         string            `yaml:"id"`
 	Repository string            `yaml:"repository"`
 	Env        map[string]string `yaml:"env"`
@@ -36,10 +36,10 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Expand environment variables in all fields
-	for i := range cfg.Destinations {
-		cfg.Destinations[i].Repository = expandEnv(cfg.Destinations[i].Repository)
-		for k, v := range cfg.Destinations[i].Env {
-			cfg.Destinations[i].Env[k] = expandEnv(v)
+	for i := range cfg.Instances {
+		cfg.Instances[i].Repository = expandEnv(cfg.Instances[i].Repository)
+		for k, v := range cfg.Instances[i].Env {
+			cfg.Instances[i].Env[k] = expandEnv(v)
 		}
 	}
 
@@ -64,11 +64,11 @@ func expandEnv(s string) string {
 }
 
 // GetDestination returns a destination by ID
-func (c *Config) GetDestination(id string) (*Destination, error) {
+func (c *Config) GetDestination(id string) (*BackupInstance, error) {
 	// IMPORTANT: must return pointer to slice element, not loop variable copy.
-	for i := range c.Destinations {
-		if c.Destinations[i].ID == id {
-			return &c.Destinations[i], nil
+	for i := range c.Instances {
+		if c.Instances[i].ID == id {
+			return &c.Instances[i], nil
 		}
 	}
 	return nil, fmt.Errorf("destination %q not found in config", id)

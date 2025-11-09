@@ -8,21 +8,21 @@ import (
 	"os/exec"
 )
 
-type BackupDestination struct {
+type BackupInstance struct {
 	ID         string
 	Repository string
 	Env        map[string]string
 }
 
-func (p *BackupDestination) Close() error { return nil }
+func (instance *BackupInstance) Close() error { return nil }
 
-func (c *BackupDestination) runRestic(ctx context.Context, args ...string) (string, error) {
+func (instance *BackupInstance) runRestic(ctx context.Context, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "restic", args...)
 	// Set repository
-	cmd.Env = append(os.Environ(), "RESTIC_REPOSITORY="+c.Repository)
+	cmd.Env = append(os.Environ(), "RESTIC_REPOSITORY="+instance.Repository)
 	// Add custom environment variables
-	for k, v := range c.Env {
+	for k, v := range instance.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	cmd.Stdout = &stdout
@@ -34,19 +34,19 @@ func (c *BackupDestination) runRestic(ctx context.Context, args ...string) (stri
 	return stdout.String(), nil
 }
 
-func (p *BackupDestination) Init(ctx context.Context) error {
+func (instance *BackupInstance) Init(ctx context.Context) error {
 	// Check if already initialized by running 'restic snapshots'
-	_, err := p.runRestic(ctx, "snapshots")
+	_, err := instance.runRestic(ctx, "snapshots")
 	if err == nil {
 		// Repository is initialized
 		return nil
 	}
 	// If not initialized, run 'restic init'
-	_, err = p.runRestic(ctx, "init")
+	_, err = instance.runRestic(ctx, "init")
 	return err
 }
 
-func (c *BackupDestination) Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error) {
+func (instance *BackupInstance) Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error) {
 	args := []string{"backup"}
 	args = append(args, paths...)
 	for _, t := range tags {
@@ -55,10 +55,10 @@ func (c *BackupDestination) Backup(ctx context.Context, paths []string, tags []s
 	for _, e := range excludes {
 		args = append(args, "--exclude", e)
 	}
-	return c.runRestic(ctx, args...)
+	return instance.runRestic(ctx, args...)
 }
 
-func (c *BackupDestination) DeleteOldSnapshots(ctx context.Context, daily, weekly, monthly int) (string, error) {
+func (instance *BackupInstance) DeleteOldSnapshots(ctx context.Context, daily, weekly, monthly int) (string, error) {
 	args := []string{"forget", "--prune"}
 	if daily > 0 {
 		args = append(args, "--keep-daily", fmt.Sprint(daily))
@@ -69,5 +69,5 @@ func (c *BackupDestination) DeleteOldSnapshots(ctx context.Context, daily, weekl
 	if monthly > 0 {
 		args = append(args, "--keep-monthly", fmt.Sprint(monthly))
 	}
-	return c.runRestic(ctx, args...)
+	return instance.runRestic(ctx, args...)
 }

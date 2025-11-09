@@ -49,7 +49,7 @@ services:
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.db: "postgres"
       eu.polarnight.marina.schedule: "30 2 * * *"  # 2:30 AM daily (overrides default)
-      eu.polarnight.marina.destination: "hetzner-s3"
+      eu.polarnight.marina.instanceID: "hetzner-s3"
       eu.polarnight.marina.retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
       eu.polarnight.marina.tags: "service:postgres,env:production"
       eu.polarnight.marina.dump.args: "--clean,--if-exists,--no-owner,--no-acl"
@@ -88,7 +88,7 @@ services:
       # If not set in config.yml, uses hardcoded defaults:
       #   schedule: "30 2 * * *" for databases
       #   retention: "7d:4w:6m"
-      eu.polarnight.marina.destination: "hetzner-s3"
+      eu.polarnight.marina.instanceID: "hetzner-s3"
       eu.polarnight.marina.tags: "service:redis,env:production"
     networks:
       - backup-net
@@ -113,7 +113,7 @@ volumes:
     labels:
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.schedule: "0 3 * * *"  # 3:00 AM daily
-      eu.polarnight.marina.destination: "hetzner-s3"
+      eu.polarnight.marina.instanceID: "hetzner-s3"
       eu.polarnight.marina.retention: "14d:8w:12m"  # Keep more for user data
       eu.polarnight.marina.paths: "/"
       eu.polarnight.marina.stopAttached: "true"  # Stop app container during backup
@@ -127,7 +127,7 @@ volumes:
     driver: local
     labels:
       eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.destination: "hetzner-s3"
+      eu.polarnight.marina.instanceID: "hetzner-s3"
       # No schedule: uses defaultSchedule from config.yml (or "0 3 * * *" if not set)
       # No retention: uses defaultRetention from config.yml (or "7d:4w:6m" if not set)
       # No stopAttached: uses defaultStopAttached from config.yml (or false if not set)

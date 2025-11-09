@@ -1,4 +1,4 @@
-destinations:
+instances:
   - id: local-integration
     repository: /backup/repo
     env:
@@ -7,3 +7,4 @@ destinations:
 # Defaults (can be overridden by labels)
 defaultSchedule: "* * * * *"
 defaultRetention: "7d:4w:6m"
+defaultStopAttached: true

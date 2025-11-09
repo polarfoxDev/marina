@@ -42,8 +42,8 @@ func TestLoad_EnvExpansionAndGetDestination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if len(cfg.Destinations) != 2 {
-		t.Fatalf("expected 2 destinations, got %d", len(cfg.Destinations))
+	if len(cfg.Instances) != 2 {
+		t.Fatalf("expected 2 destinations, got %d", len(cfg.Instances))
 	}
 	d, err := cfg.GetDestination("hetzner-s3")
 	if err != nil {

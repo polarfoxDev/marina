@@ -1,4 +1,4 @@
-destinations:
+instances:
   - id: hetzner-s3
     repository: s3:https://fsn1.your-objectstorage.com/restic12t681
     env:
