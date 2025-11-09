@@ -36,9 +36,16 @@ destinations:
     repository: /mnt/backup/restic
     env:
       RESTIC_PASSWORD: direct-value-also-works
+
+# Optional: Default settings that can be overridden by Docker labels
+defaultSchedule: "0 2 * * *" # Cron format: minute hour day month weekday
+defaultRetention: "14d:8w:12m" # Format: daily:weekly:monthly
+defaultStopAttached: true # Stop containers when backing up volumes
 ```
 
 Environment variables in config.yml are expanded using `${VAR_NAME}` or `$VAR_NAME` syntax.
+
+**Default settings**: Config can define `defaultSchedule`, `defaultRetention`, and `defaultStopAttached` that apply to all backup targets unless overridden by Docker labels. Priority: Label > Config default > Hardcoded default (schedule: "0 3 \* \* _" for volumes, "30 2 _ \* \*" for DBs; retention: "7d:4w:6m"; stopAttached: false).
 
 ### Label-Driven Configuration
 

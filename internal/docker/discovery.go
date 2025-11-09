@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 
+	"github.com/polarfoxDev/marina/internal/config"
 	"github.com/polarfoxDev/marina/internal/helpers"
 	"github.com/polarfoxDev/marina/internal/labels"
 	"github.com/polarfoxDev/marina/internal/model"
@@ -17,14 +18,15 @@ import (
 
 type Discoverer struct {
 	cli *client.Client
+	cfg *config.Config
 }
 
-func NewDiscoverer() (*Discoverer, error) {
+func NewDiscoverer(cfg *config.Config) (*Discoverer, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, err
 	}
-	return &Discoverer{cli: cli}, nil
+	return &Discoverer{cli: cli, cfg: cfg}, nil
 }
 
 func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error) {
@@ -58,10 +60,29 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 
 		sched := lbl[labels.LSchedule]
 		if sched == "" {
-			sched = "0 3 * * *"
+			// Use default from config, or fallback to hardcoded default
+			if d.cfg.DefaultSchedule != "" {
+				sched = d.cfg.DefaultSchedule
+			} else {
+				sched = "0 3 * * *"
+			}
 		}
 		if err := helpers.ValidateCron(sched); err != nil {
 			continue
+		}
+
+		// Determine stopAttached: label > config default > hardcoded default (false)
+		stopAttached := false
+		if lbl[labels.LStopAttached] != "" {
+			stopAttached = helpers.ParseBool(lbl[labels.LStopAttached])
+		} else if d.cfg.DefaultStopAttached != nil {
+			stopAttached = *d.cfg.DefaultStopAttached
+		}
+
+		// Parse retention: label > config default > hardcoded default
+		retention := lbl[labels.LRetention]
+		if retention == "" && d.cfg.DefaultRetention != "" {
+			retention = d.cfg.DefaultRetention
 		}
 
 		t := model.BackupTarget{
@@ -70,7 +91,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 			Type:         model.TargetVolume,
 			Schedule:     sched,
 			Destination:  model.DestinationID(lbl[labels.LDestination]),
-			Retention:    helpers.ParseRetention(lbl[labels.LRetention]),
+			Retention:    helpers.ParseRetention(retention),
 			Exclude:      helpers.SplitCSV(lbl[labels.LExclude]),
 			Tags:         helpers.SplitCSV(lbl[labels.LTags]),
 			PreHook:      lbl[labels.LPreHook],
@@ -78,7 +99,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 			VolumeName:   v.Name,
 			Paths:        helpers.SplitCSV(lbl[labels.LPaths]),
 			AttachedCtrs: slices.Clone(ctrUsing[v.Name]),
-			StopAttached: helpers.ParseBool(lbl[labels.LStopAttached]),
+			StopAttached: stopAttached,
 		}
 		if len(t.Paths) == 0 {
 			t.Paths = []string{"/"}
@@ -100,7 +121,18 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 
 		sched := lbl[labels.LSchedule]
 		if sched == "" {
-			sched = "30 2 * * *"
+			// Use default from config, or fallback to hardcoded default
+			if d.cfg.DefaultSchedule != "" {
+				sched = d.cfg.DefaultSchedule
+			} else {
+				sched = "30 2 * * *"
+			}
+		}
+
+		// Parse retention: label > config default > hardcoded default
+		retention := lbl[labels.LRetention]
+		if retention == "" && d.cfg.DefaultRetention != "" {
+			retention = d.cfg.DefaultRetention
 		}
 
 		t := model.BackupTarget{
@@ -109,7 +141,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 			Type:        model.TargetDB,
 			Schedule:    sched,
 			Destination: model.DestinationID(lbl[labels.LDestination]),
-			Retention:   helpers.ParseRetention(lbl[labels.LRetention]),
+			Retention:   helpers.ParseRetention(retention),
 			Exclude:     helpers.SplitCSV(lbl[labels.LExclude]),
 			Tags:        helpers.SplitCSV(lbl[labels.LTags]),
 			PreHook:     lbl[labels.LPreHook],

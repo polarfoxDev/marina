@@ -48,7 +48,7 @@ services:
       # Enable Marina backup for this DB container
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.db: "postgres"
-      eu.polarnight.marina.schedule: "30 2 * * *"  # 2:30 AM daily
+      eu.polarnight.marina.schedule: "30 2 * * *"  # 2:30 AM daily (overrides default)
       eu.polarnight.marina.destination: "hetzner-s3"
       eu.polarnight.marina.retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
       eu.polarnight.marina.tags: "service:postgres,env:production"
@@ -73,7 +73,7 @@ services:
     networks:
       - app-net
 
-  # Example: Redis with DB backup
+  # Example: Redis with DB backup (uses defaults from config.yml)
   redis:
     image: redis:7-alpine
     container_name: app-redis
@@ -84,9 +84,11 @@ services:
     labels:
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.db: "redis"
-      eu.polarnight.marina.schedule: "0 4 * * *"  # 4:00 AM daily
+      # No schedule/retention: will use defaults from config.yml
+      # If not set in config.yml, uses hardcoded defaults:
+      #   schedule: "30 2 * * *" for databases
+      #   retention: "7d:4w:6m"
       eu.polarnight.marina.destination: "hetzner-s3"
-      eu.polarnight.marina.retention: "7d:4w:3m"
       eu.polarnight.marina.tags: "service:redis,env:production"
     networks:
       - backup-net
@@ -118,16 +120,18 @@ volumes:
       eu.polarnight.marina.tags: "type:uploads,env:production"
       eu.polarnight.marina.exclude: "*.tmp,cache/*,thumbnails/*"
 
-  # Application config volume with backup but no container stop
+  # Application config volume - uses defaults from config.yml
+  # If config.yml has defaultSchedule, defaultRetention, defaultStopAttached,
+  # those will be used unless overridden by labels here
   app-config:
     driver: local
     labels:
       eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.schedule: "0 5 * * *"  # 5:00 AM daily
       eu.polarnight.marina.destination: "hetzner-s3"
-      eu.polarnight.marina.retention: "30d:12w:12m"  # Keep config longer
+      # No schedule: uses defaultSchedule from config.yml (or "0 3 * * *" if not set)
+      # No retention: uses defaultRetention from config.yml (or "7d:4w:6m" if not set)
+      # No stopAttached: uses defaultStopAttached from config.yml (or false if not set)
       eu.polarnight.marina.paths: "/"
-      eu.polarnight.marina.stopAttached: "false"  # Config can be backed up live
       eu.polarnight.marina.tags: "type:config,env:production"
 
 networks:

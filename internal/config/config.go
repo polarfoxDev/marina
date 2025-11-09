@@ -10,7 +10,10 @@ import (
 
 // Config represents the complete configuration file
 type Config struct {
-	Destinations []Destination `yaml:"destinations"`
+	Destinations        []Destination `yaml:"destinations"`
+	DefaultSchedule     string        `yaml:"defaultSchedule,omitempty"`
+	DefaultRetention    string        `yaml:"defaultRetention,omitempty"`
+	DefaultStopAttached *bool         `yaml:"defaultStopAttached,omitempty"`
 }
 
 // Destination represents a backup destination configuration

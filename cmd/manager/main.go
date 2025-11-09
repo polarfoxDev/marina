@@ -47,7 +47,7 @@ func main() {
 	}
 
 	// Discover backup targets from Docker labels
-	disc, err := dockerd.NewDiscoverer()
+	disc, err := dockerd.NewDiscoverer(cfg)
 	if err != nil {
 		log.Fatalf("docker: %v", err)
 	}
