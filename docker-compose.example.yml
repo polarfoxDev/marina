@@ -73,27 +73,6 @@ services:
     networks:
       - app-net
 
-  # Example: Redis with DB backup (uses defaults from config.yml)
-  redis:
-    image: redis:7-alpine
-    container_name: app-redis
-    restart: unless-stopped
-    volumes:
-      - redis-data:/data
-      - marina-staging:/backup/tmp
-    labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.db: "redis"
-      # No schedule/retention: will use defaults from config.yml
-      # If not set in config.yml, uses hardcoded defaults:
-      #   schedule: "30 2 * * *" for databases
-      #   retention: "7d:4w:6m"
-      eu.polarnight.marina.instanceID: "hetzner-s3"
-      eu.polarnight.marina.tags: "service:redis,env:production"
-    networks:
-      - backup-net
-      - app-net
-
 volumes:
   # Marina staging directory for DB dumps
   marina-staging:
@@ -101,10 +80,6 @@ volumes:
 
   # PostgreSQL data volume (backed up via DB dump, not volume backup)
   postgres-data:
-    driver: local
-
-  # Redis data volume (backed up via RDB copy)
-  redis-data:
     driver: local
 
   # Application uploads volume with backup labels

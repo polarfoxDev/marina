@@ -256,10 +256,15 @@ func (r *Runner) backupDB(ctx context.Context, target model.BackupTarget) error 
 	}
 	defer func() { _ = os.RemoveAll(hostStagingDir) }()
 
-	dumpCmd, dumpFile := buildDumpCmd(target, containerDumpDir)
-	if _, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", dumpCmd}); err != nil {
+	dumpCmd, dumpFile, err := buildDumpCmd(target, containerDumpDir)
+	if err != nil {
+		return err
+	}
+	output, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", dumpCmd})
+	if err != nil {
 		return fmt.Errorf("dump failed: %w", err)
 	}
+	r.Logf("dump output: %s", output)
 
 	hostDumpPath, err := docker.CopyFileFromContainer(ctx, r.Docker, target.ContainerID, dumpFile, hostStagingDir, func(expected, written int64) {
 		if expected > 0 && expected != written {
@@ -278,32 +283,27 @@ func (r *Runner) backupDB(ctx context.Context, target model.BackupTarget) error 
 	return nil
 }
 
-func buildDumpCmd(t model.BackupTarget, dumpDir string) (cmd string, output string) {
+func buildDumpCmd(t model.BackupTarget, dumpDir string) (cmd string, output string, err error) {
 	switch t.DBKind {
 	case "postgres":
 		file := filepath.Join(dumpDir, "dump.pgcustom")
 		// expect PGPASSWORD etc already present in container env
 		args := stringsJoin(append([]string{"pg_dump", "-Fc"}, t.DumpArgs...)...)
-		return fmt.Sprintf("%s > %q", args, file), file
+		return fmt.Sprintf("%s > %q", args, file), file, nil
 	case "mysql":
 		file := filepath.Join(dumpDir, "dump.sql")
 		args := stringsJoin(append([]string{"mysqldump", "--single-transaction"}, t.DumpArgs...)...)
-		return fmt.Sprintf("%s > %q", args, file), file
+		return fmt.Sprintf("%s > %q", args, file), file, nil
 	case "mariadb":
 		file := filepath.Join(dumpDir, "dump.sql")
 		args := stringsJoin(append([]string{"mariadb-dump", "--single-transaction"}, t.DumpArgs...)...)
-		return fmt.Sprintf("%s > %q", args, file), file
+		return fmt.Sprintf("%s > %q", args, file), file, nil
 	case "mongo":
 		file := filepath.Join(dumpDir, "dump.archive")
 		args := stringsJoin(append([]string{"mongodump", "--archive"}, t.DumpArgs...)...)
-		return fmt.Sprintf("%s > %q", args, file), file
-	case "redis":
-		file := filepath.Join(dumpDir, "dump.rdb")
-		// A simple way is to copy RDB; for running instances, BGSAVE then copy
-		return fmt.Sprintf("redis-cli BGSAVE && cp /data/dump.rdb %q", file), file
+		return fmt.Sprintf("%s > %q", args, file), file, nil
 	default:
-		file := filepath.Join(dumpDir, "dump.raw")
-		return fmt.Sprintf("echo 'unsupported db kind %q' > %q", t.DBKind, file), file
+		return "", "", fmt.Errorf("unsupported db kind %q", t.DBKind)
 	}
 }
 

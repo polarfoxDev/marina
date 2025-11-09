@@ -10,7 +10,7 @@ set -euo pipefail
 
 COMPOSE_FILE=tests/integration/docker-compose.integration.yml
 IMAGE_TAG=${IMAGE_TAG:-marina:latest}
-REQ_DB_KINDS=(postgres mysql mariadb mongo redis)
+REQ_DB_KINDS=(postgres mysql mariadb mongo)
 RESTIC_PASSWORD="testpass"
 
 echo "[build] Building image ${IMAGE_TAG}"

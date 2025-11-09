@@ -15,7 +15,7 @@ eu.polarnight.marina.stopAttached=true        # stop attached container during b
 
 # DB services (put on the DB container)
 eu.polarnight.marina.type=db
-eu.polarnight.marina.db=postgres              # postgres|mysql|mariadb|mongo|redis|…
+eu.polarnight.marina.db=postgres              # postgres|mysql|mariadb|mongo|…
 eu.polarnight.marina.dump.args=--clean --if-exists
 eu.polarnight.marina.pre=bin/quiesce.sh
 eu.polarnight.marina.post=bin/unquiesce.sh
