@@ -41,7 +41,6 @@ services:
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.db: "mysql"
       eu.polarnight.marina.instanceID: "local-integration"
-      eu.polarnight.marina.dump.args: "-uroot,-pmysqlpass"
 
   mariadb:
     image: mariadb:11
@@ -52,7 +51,8 @@ services:
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.db: "mariadb"
       eu.polarnight.marina.instanceID: "local-integration"
-      eu.polarnight.marina.dump.args: "-uroot,-pmaripass"
+      eu.polarnight.marina.pre: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdbeforefirstdump;'"
+      eu.polarnight.marina.post: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdafterfirstdump;'"
 
   mongo:
     image: mongo:7
@@ -66,7 +66,7 @@ services:
   volume-writer:
     image: alpine:3.20
     container_name: volwriter-it
-    command: ["sh", "-lc", "printf 'hello-%s' $(date +%s) > /mnt/data/hello.txt && sleep infinity"]
+    command: ["sh", "-lc", "printf 'hello-%s' $(date +%s) > /mnt/data/hello.txt && dd if=/dev/urandom of=/mnt/data/random.bin bs=1M count=100 && sleep infinity"]
     volumes:
       - testdata:/mnt/data
 
@@ -78,5 +78,4 @@ volumes:
       eu.polarnight.marina.enabled: "true"
       eu.polarnight.marina.instanceID: "local-integration"
       eu.polarnight.marina.paths: "/"
-      eu.polarnight.marina.retention: "1d:1w:1m"
-      eu.polarnight.marina.stopAttached: "false"
+      eu.polarnight.marina.stopAttached: "true"

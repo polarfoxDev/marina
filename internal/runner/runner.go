@@ -263,13 +263,24 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) ([]string, cleanupFunc, error) {
 	// Execute pre-hook in first attached container
 	if target.PreHook != "" && len(target.AttachedCtrs) > 0 {
-		if _, err := docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PreHook}); err != nil {
+		jobLogger.Debug("executing pre-hook")
+		output, err := docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PreHook})
+		if err != nil {
 			return nil, nil, fmt.Errorf("prehook: %w", err)
+		}
+		if output != "" {
+			jobLogger.Debug("pre-hook output: %s", output)
 		}
 		// Defer post-hook
 		defer func() {
 			if target.PostHook != "" {
-				_, _ = docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PostHook})
+				jobLogger.Debug("executing post-hook")
+				output, err := docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PostHook})
+				if err != nil {
+					jobLogger.Warn("post-hook failed: %v", err)
+				} else if output != "" {
+					jobLogger.Debug("post-hook output: %s", output)
+				}
 			}
 		}()
 	}
@@ -348,13 +359,24 @@ func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp 
 func (r *Runner) prepareDBBackup(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) (string, cleanupFunc, error) {
 	// Execute pre-hook
 	if target.PreHook != "" {
-		if _, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PreHook}); err != nil {
+		jobLogger.Debug("executing pre-hook")
+		output, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PreHook})
+		if err != nil {
 			return "", nil, fmt.Errorf("prehook: %w", err)
+		}
+		if output != "" {
+			jobLogger.Debug("pre-hook output: %s", output)
 		}
 		// Defer post-hook
 		defer func() {
 			if target.PostHook != "" {
-				_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PostHook})
+				jobLogger.Debug("executing post-hook")
+				output, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PostHook})
+				if err != nil {
+					jobLogger.Warn("post-hook failed: %v", err)
+				} else if output != "" {
+					jobLogger.Debug("post-hook output: %s", output)
+				}
 			}
 		}()
 	}
@@ -428,13 +450,35 @@ func buildDumpCmd(t model.BackupTarget, dumpDir string) (cmd string, output stri
 		return fmt.Sprintf("%s > %q", args, file), file, nil
 	case "mysql":
 		file := filepath.Join(dumpDir, "dump.sql")
-		// Use --all-databases to dump everything
-		args := stringsJoin(append([]string{"mysqldump", "--single-transaction", "--all-databases"}, t.DumpArgs...)...)
+		// Build dump command with automatic credential fallback
+		// If no dump.args provided, try MYSQL_ROOT_PASSWORD, then MYSQL_PASSWORD
+		if len(t.DumpArgs) == 0 {
+			cmd := fmt.Sprintf(`
+				mysqldump --single-transaction --all-databases -uroot -p"$MYSQL_ROOT_PASSWORD" > %q 2>/tmp/dump.err || \
+				(echo "Root dump failed, trying MYSQL_USER..." >&2 && \
+				 mysqldump --single-transaction --all-databases -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" > %q)
+			`, file, file)
+			return cmd, file, nil
+		}
+		// Use provided dump.args
+		baseArgs := []string{"mysqldump", "--single-transaction", "--all-databases"}
+		args := stringsJoin(append(baseArgs, t.DumpArgs...)...)
 		return fmt.Sprintf("%s > %q", args, file), file, nil
 	case "mariadb":
 		file := filepath.Join(dumpDir, "dump.sql")
-		// Use --all-databases to dump everything
-		args := stringsJoin(append([]string{"mariadb-dump", "--single-transaction", "--all-databases"}, t.DumpArgs...)...)
+		// Build dump command with automatic credential fallback
+		// If no dump.args provided, try MARIADB_ROOT_PASSWORD, then MARIADB_PASSWORD
+		if len(t.DumpArgs) == 0 {
+			cmd := fmt.Sprintf(`
+				mariadb-dump --single-transaction --all-databases -uroot -p"$MARIADB_ROOT_PASSWORD" > %q 2>/tmp/dump.err || \
+				(echo "Root dump failed, trying MARIADB_USER..." >&2 && \
+				 mariadb-dump --single-transaction --all-databases -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" > %q)
+			`, file, file)
+			return cmd, file, nil
+		}
+		// Use provided dump.args
+		baseArgs := []string{"mariadb-dump", "--single-transaction", "--all-databases"}
+		args := stringsJoin(append(baseArgs, t.DumpArgs...)...)
 		return fmt.Sprintf("%s > %q", args, file), file, nil
 	case "mongo":
 		file := filepath.Join(dumpDir, "dump.archive")
