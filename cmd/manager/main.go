@@ -11,11 +11,22 @@ import (
 	"github.com/polarfoxDev/marina/internal/backend"
 	"github.com/polarfoxDev/marina/internal/config"
 	dockerd "github.com/polarfoxDev/marina/internal/docker"
+	"github.com/polarfoxDev/marina/internal/logging"
 	"github.com/polarfoxDev/marina/internal/runner"
 )
 
 func main() {
 	ctx := context.Background()
+
+	// Initialize structured logger
+	logDBPath := envDefault("LOG_DB_PATH", "/var/lib/marina/logs.db")
+	logger, err := logging.New(logDBPath, os.Stdout)
+	if err != nil {
+		log.Fatalf("init logger: %v", err)
+	}
+	defer logger.Close()
+
+	logger.Info("marina starting...")
 
 	// Load configuration from config.yml
 	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
@@ -31,7 +42,7 @@ func main() {
 			Repository: dest.Repository,
 			Env:        dest.Env,
 		}
-		log.Printf("loaded instance: %s -> %s", dest.ID, dest.Repository)
+		logger.Info("loaded instance: %s -> %s", dest.ID, dest.Repository)
 	}
 
 	if len(instances) == 0 {
@@ -43,7 +54,7 @@ func main() {
 		if err := instance.Init(ctx); err != nil {
 			log.Fatalf("init instance %s: %v", id, err)
 		}
-		log.Printf("instance %s initialized", id)
+		logger.Info("instance %s initialized", id)
 	}
 
 	// Discover backup targets from Docker labels
@@ -56,7 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("discover: %v", err)
 	}
-	log.Printf("discovered %d targets", len(targets))
+	logger.Info("discovered %d targets", len(targets))
 
 	// Create Docker client
 	dcli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -70,27 +81,27 @@ func main() {
 		dcli,
 		envDefault("VOLUME_ROOT", "/var/lib/docker/volumes"),
 		envDefault("STAGING_DIR", "/backup/tmp"),
-		log.Printf,
+		logger,
 	)
 
 	// Start the scheduler
 	r.Start()
-	log.Printf("scheduler started")
+	logger.Info("scheduler started")
 
 	// Initial discovery and scheduling
 	targets, err = disc.Discover(ctx)
 	if err != nil {
 		log.Fatalf("initial discover: %v", err)
 	}
-	log.Printf("discovered %d targets", len(targets))
+	logger.Info("discovered %d targets", len(targets))
 	r.SyncTargets(targets)
 
 	// Function to trigger rediscovery
 	triggerDiscovery := func() {
-		log.Printf("triggering rediscovery...")
+		logger.Info("triggering rediscovery...")
 		targets, err := disc.Discover(ctx)
 		if err != nil {
-			log.Printf("rediscovery failed: %v", err)
+			logger.Error("rediscovery failed: %v", err)
 			return
 		}
 		r.SyncTargets(targets)
@@ -99,17 +110,17 @@ func main() {
 	// Start Docker event listener for real-time updates (if enabled)
 	enableEvents := envDefault("ENABLE_EVENTS", "true") == "true"
 	if enableEvents {
-		eventListener := dockerd.NewEventListener(dcli, triggerDiscovery, log.Printf)
+		eventListener := dockerd.NewEventListener(dcli, triggerDiscovery, logger.Logf)
 		if err := eventListener.Start(ctx); err != nil {
-			log.Printf("failed to start event listener: %v", err)
+			logger.Error("failed to start event listener: %v", err)
 		} else {
-			log.Printf("docker event listener started")
+			logger.Info("docker event listener started")
 		}
 	}
 
 	// Start periodic rediscovery to handle dynamic changes
 	rediscoveryInterval := envDefaultDuration("DISCOVERY_INTERVAL", 30*time.Second)
-	log.Printf("starting periodic discovery (interval: %v)", rediscoveryInterval)
+	logger.Info("starting periodic discovery (interval: %v)", rediscoveryInterval)
 
 	ticker := time.NewTicker(rediscoveryInterval)
 	defer ticker.Stop()
@@ -125,7 +136,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("marina is running, press Ctrl+C to stop...")
+	logger.Info("marina is running, press Ctrl+C to stop...")
 
 	// Keep running until context is cancelled
 	<-ctx.Done()
@@ -134,7 +145,7 @@ func main() {
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	r.Stop(stopCtx)
-	log.Printf("scheduler stopped")
+	logger.Info("scheduler stopped")
 }
 
 func envDefault(k, def string) string {

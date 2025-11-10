@@ -2,3 +2,7 @@ integration/.env
 integration/.tmp/
 integration/*.log
 marina
+/logquery
+*.db
+*.db-shm
+*.db-wal

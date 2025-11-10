@@ -36,21 +36,23 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go test ./...
 
-# Build the manager binary
+# Build the manager and logquery binaries
 FROM base AS build
 COPY --from=restic /usr/local/bin/restic /usr/local/bin/restic
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -o /out/marina ./cmd/manager
+    CGO_ENABLED=0 go build -o /out/marina ./cmd/manager && \
+    CGO_ENABLED=0 go build -o /out/logquery ./cmd/logquery
 
 FROM alpine:3.20 AS runner
 WORKDIR /
 RUN apk add --no-cache ca-certificates bash curl coreutils tzdata \
     && adduser -D -u 10001 marina \
-    && mkdir -p /backup/restic /backup/tmp \
-    && chown -R marina:marina /backup \
+    && mkdir -p /backup/restic /backup/tmp /var/lib/marina \
+    && chown -R marina:marina /backup /var/lib/marina \
     && update-ca-certificates
 COPY --from=build /out/marina /usr/local/bin/marina
+COPY --from=build /out/logquery /usr/local/bin/logquery
 COPY --from=restic /usr/local/bin/restic /usr/local/bin/restic
 ENV PATH="/usr/local/bin:/usr/bin:/bin"
 USER marina

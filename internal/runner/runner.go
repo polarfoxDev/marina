@@ -13,6 +13,7 @@ import (
 
 	"github.com/polarfoxDev/marina/internal/backend"
 	"github.com/polarfoxDev/marina/internal/docker"
+	"github.com/polarfoxDev/marina/internal/logging"
 	"github.com/polarfoxDev/marina/internal/model"
 )
 
@@ -22,24 +23,21 @@ type Runner struct {
 	Docker          *client.Client
 	VolumeRoot      string // usually /var/lib/docker/volumes
 	StagingDir      string // e.g. /backup/tmp
-	Logf            func(string, ...any)
+	Logger          *logging.Logger
 
 	// Track scheduled jobs for dynamic updates
 	scheduledJobs map[string]cron.EntryID       // target ID -> cron entry ID
 	targets       map[string]model.BackupTarget // target ID -> target config
 }
 
-func New(instances map[string]*backend.BackupInstance, docker *client.Client, volRoot, staging string, logf func(string, ...any)) *Runner {
-	if logf == nil {
-		logf = func(string, ...any) {}
-	}
+func New(instances map[string]*backend.BackupInstance, docker *client.Client, volRoot, staging string, logger *logging.Logger) *Runner {
 	return &Runner{
 		Cron:            cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
 		BackupInstances: instances,
 		Docker:          docker,
 		VolumeRoot:      volRoot,
 		StagingDir:      staging,
-		Logf:            logf,
+		Logger:          logger,
 		scheduledJobs:   make(map[string]cron.EntryID),
 		targets:         make(map[string]model.BackupTarget),
 	}
@@ -64,10 +62,18 @@ func (r *Runner) ScheduleTarget(t model.BackupTarget) error {
 	entryID, err := r.Cron.AddFunc(t.Schedule, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
 		defer cancel()
+		
+		// Create job logger with context
+		jobLogger := r.Logger.NewJobLogger(t.ID, string(t.InstanceID))
+		
+		jobLogger.Info("backup job started")
+		startTime := time.Now()
+		
 		if err := r.runOnce(ctx, t); err != nil {
-			r.Logf("job %s failed: %v", t.ID, err)
+			jobLogger.Error("backup job failed: %v", err)
 		} else {
-			r.Logf("job %s done", t.ID)
+			duration := time.Since(startTime)
+			jobLogger.Info("backup job completed successfully (duration: %v)", duration)
 		}
 	})
 	if err != nil {
@@ -91,7 +97,7 @@ func (r *Runner) RemoveTarget(targetID string) {
 // SyncTargets updates the scheduler with a new set of discovered targets
 // Adds new targets, removes deleted ones, and updates changed ones
 func (r *Runner) SyncTargets(newTargets []model.BackupTarget) {
-	r.Logf("syncing %d discovered targets...", len(newTargets))
+	r.Logger.Info("syncing %d discovered targets...", len(newTargets))
 	newSet := make(map[string]model.BackupTarget)
 	for _, t := range newTargets {
 		newSet[t.ID] = t
@@ -100,7 +106,7 @@ func (r *Runner) SyncTargets(newTargets []model.BackupTarget) {
 	// Remove targets that no longer exist
 	for id := range r.targets {
 		if _, exists := newSet[id]; !exists {
-			r.Logf("removing target %s (no longer exists)", id)
+			r.Logger.Info("removing target %s (no longer exists)", id)
 			r.RemoveTarget(id)
 		}
 	}
@@ -109,7 +115,7 @@ func (r *Runner) SyncTargets(newTargets []model.BackupTarget) {
 	for id, t := range newSet {
 		// Validate instance exists
 		if _, ok := r.BackupInstances[string(t.InstanceID)]; !ok {
-			r.Logf("WARNING: target %s references unknown instance %q, skipping", id, t.InstanceID)
+			r.Logger.Warn("target %s references unknown instance %q, skipping", id, t.InstanceID)
 			continue
 		}
 
@@ -119,11 +125,11 @@ func (r *Runner) SyncTargets(newTargets []model.BackupTarget) {
 		isChanged := found && !targetsEqual(existing, t)
 
 		if err := r.ScheduleTarget(t); err != nil {
-			r.Logf("schedule %s: %v", id, err)
+			r.Logger.Error("schedule %s: %v", id, err)
 		} else {
 			// Only log if it's new or changed
 			if isNew || isChanged {
-				r.Logf("scheduled %s (name: %s, instance: %s, schedule: %s)", id, t.Name, t.InstanceID, t.Schedule)
+				r.Logger.Info("scheduled %s (name: %s, instance: %s, schedule: %s)", id, t.Name, t.InstanceID, t.Schedule)
 			}
 		}
 	}
@@ -154,17 +160,18 @@ func (r *Runner) TriggerNow(ctx context.Context, t model.BackupTarget) error {
 }
 
 func (r *Runner) runOnce(ctx context.Context, t model.BackupTarget) error {
+	jobLogger := r.Logger.NewJobLogger(t.ID, string(t.InstanceID))
 	switch t.Type {
 	case model.TargetVolume:
-		return r.backupVolume(ctx, t)
+		return r.backupVolume(ctx, t, jobLogger)
 	case model.TargetDB:
-		return r.backupDB(ctx, t)
+		return r.backupDB(ctx, t, jobLogger)
 	default:
 		return fmt.Errorf("unknown target type: %s", t.Type)
 	}
 }
 
-func (r *Runner) backupVolume(ctx context.Context, target model.BackupTarget) error {
+func (r *Runner) backupVolume(ctx context.Context, target model.BackupTarget, jobLogger *logging.JobLogger) error {
 	dest, ok := r.BackupInstances[string(target.InstanceID)]
 	if !ok {
 		return fmt.Errorf("instance %q not found", target.InstanceID)
@@ -197,15 +204,15 @@ func (r *Runner) backupVolume(ctx context.Context, target model.BackupTarget) er
 				return fmt.Errorf("inspect attached container: %w", err)
 			}
 			if ctrInfo.Mounts[0].Mode == "ro" {
-				r.Logf("attached container %s is mounted read-only, skipping stop/start", ctr)
+				jobLogger.Info("attached container %s is mounted read-only, skipping stop/start", ctr)
 				continue
 			}
-			r.Logf("stopping attached container %s", ctr)
+			jobLogger.Info("stopping attached container %s", ctr)
 			if err := docker.StopContainer(ctx, r.Docker, ctr); err != nil {
 				return fmt.Errorf("stop attached container: %w", err)
 			}
 			defer func() {
-				r.Logf("starting attached container %s", ctr)
+				jobLogger.Info("starting attached container %s", ctr)
 				_ = docker.StartContainer(ctx, r.Docker, ctr)
 			}()
 		}
@@ -223,7 +230,7 @@ func (r *Runner) backupVolume(ctx context.Context, target model.BackupTarget) er
 	return nil
 }
 
-func (r *Runner) backupDB(ctx context.Context, target model.BackupTarget) error {
+func (r *Runner) backupDB(ctx context.Context, target model.BackupTarget, jobLogger *logging.JobLogger) error {
 	dest, ok := r.BackupInstances[string(target.InstanceID)]
 	if !ok {
 		return fmt.Errorf("instance %q not found", target.InstanceID)
@@ -264,11 +271,11 @@ func (r *Runner) backupDB(ctx context.Context, target model.BackupTarget) error 
 	if err != nil {
 		return fmt.Errorf("dump failed: %w", err)
 	}
-	r.Logf("dump output: %s", output)
+	jobLogger.Debug("dump output: %s", output)
 
 	hostDumpPath, err := docker.CopyFileFromContainer(ctx, r.Docker, target.ContainerID, dumpFile, hostStagingDir, func(expected, written int64) {
 		if expected > 0 && expected != written {
-			r.Logf("copy warning (%s): expected %d bytes, wrote %d", target.Name, expected, written)
+			jobLogger.Warn("copy warning: expected %d bytes, wrote %d", expected, written)
 		}
 	})
 	if err != nil {
