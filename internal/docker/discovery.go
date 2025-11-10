@@ -29,8 +29,8 @@ func NewDiscoverer(cfg *config.Config) (*Discoverer, error) {
 	return &Discoverer{cli: cli, cfg: cfg}, nil
 }
 
-func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error) {
-	var out []model.BackupTarget
+func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupJob, error) {
+	var targets []model.BackupTarget
 
 	// Volumes with labels
 	vols, err := d.cli.VolumeList(ctx, volume.ListOptions{Filters: filters.NewArgs()})
@@ -58,38 +58,24 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 			continue
 		}
 
-		sched := lbl[labels.LSchedule]
-		if sched == "" {
-			// Use default from config, or fallback to hardcoded default
-			if d.cfg.DefaultSchedule != "" {
-				sched = d.cfg.DefaultSchedule
-			} else {
-				sched = "0 3 * * *"
-			}
-		}
-		if err := helpers.ValidateCron(sched); err != nil {
-			continue
-		}
-
 		// Determine stopAttached: label > config default > hardcoded default (false)
 		stopAttached := false
 		if lbl[labels.LStopAttached] != "" {
 			stopAttached = helpers.ParseBool(lbl[labels.LStopAttached])
-		} else if d.cfg.DefaultStopAttached != nil {
-			stopAttached = *d.cfg.DefaultStopAttached
+		} else if d.cfg.StopAttached != nil {
+			stopAttached = *d.cfg.StopAttached
 		}
 
 		// Parse retention: label > config default > hardcoded default
 		retention := lbl[labels.LRetention]
-		if retention == "" && d.cfg.DefaultRetention != "" {
-			retention = d.cfg.DefaultRetention
+		if retention == "" && d.cfg.Retention != "" {
+			retention = d.cfg.Retention
 		}
 
 		t := model.BackupTarget{
 			ID:           "volume:" + v.Name,
 			Name:         v.Name,
 			Type:         model.TargetVolume,
-			Schedule:     sched,
 			InstanceID:   model.InstanceID(lbl[labels.LInstanceID]),
 			Retention:    helpers.ParseRetention(retention),
 			Exclude:      helpers.SplitCSV(lbl[labels.LExclude]),
@@ -104,7 +90,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 		if len(t.Paths) == 0 {
 			t.Paths = []string{"/"}
 		}
-		out = append(out, t)
+		targets = append(targets, t)
 	}
 
 	// DB containers by labels
@@ -119,27 +105,16 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 			continue
 		}
 
-		sched := lbl[labels.LSchedule]
-		if sched == "" {
-			// Use default from config, or fallback to hardcoded default
-			if d.cfg.DefaultSchedule != "" {
-				sched = d.cfg.DefaultSchedule
-			} else {
-				sched = "30 2 * * *"
-			}
-		}
-
 		// Parse retention: label > config default > hardcoded default
 		retention := lbl[labels.LRetention]
-		if retention == "" && d.cfg.DefaultRetention != "" {
-			retention = d.cfg.DefaultRetention
+		if retention == "" && d.cfg.Retention != "" {
+			retention = d.cfg.Retention
 		}
 
 		t := model.BackupTarget{
 			ID:          "container:" + c.ID,
 			Name:        firstNonEmpty(c.Names...),
 			Type:        model.TargetDB,
-			Schedule:    sched,
 			InstanceID:  model.InstanceID(lbl[labels.LInstanceID]),
 			Retention:   helpers.ParseRetention(retention),
 			Exclude:     helpers.SplitCSV(lbl[labels.LExclude]),
@@ -150,10 +125,55 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.BackupTarget, error)
 			ContainerID: c.ID,
 			DumpArgs:    helpers.SplitCSV(lbl[labels.LDumpArgs]),
 		}
-		out = append(out, t)
+		targets = append(targets, t)
 	}
 
-	return out, nil
+	// Group targets by instance and create InstanceBackupJobs
+	instanceMap := make(map[model.InstanceID]*model.InstanceBackupJob)
+
+	for _, t := range targets {
+		if _, exists := instanceMap[t.InstanceID]; !exists {
+			// Find the schedule and retention for this instance from config
+			schedule := ""
+			retention := ""
+			for _, inst := range d.cfg.Instances {
+				if inst.ID == string(t.InstanceID) {
+					schedule = inst.Schedule
+					retention = inst.Retention
+					break
+				}
+			}
+
+			// If instance doesn't specify retention, use global fallback
+			if retention == "" && d.cfg.Retention != "" {
+				retention = d.cfg.Retention
+			}
+
+			instanceMap[t.InstanceID] = &model.InstanceBackupJob{
+				InstanceID: t.InstanceID,
+				Schedule:   schedule,
+				Targets:    []model.BackupTarget{},
+				Retention:  helpers.ParseRetention(retention),
+			}
+		}
+		instanceMap[t.InstanceID].Targets = append(instanceMap[t.InstanceID].Targets, t)
+	}
+
+	// Convert map to slice
+	var jobs []model.InstanceBackupJob
+	for _, job := range instanceMap {
+		if job.Schedule == "" {
+			// Skip instances without a schedule
+			continue
+		}
+		if err := helpers.ValidateCron(job.Schedule); err != nil {
+			// Skip instances with invalid schedules
+			continue
+		}
+		jobs = append(jobs, *job)
+	}
+
+	return jobs, nil
 }
 
 func firstNonEmpty(ss ...string) string {

@@ -1,10 +1,10 @@
 instances:
   - id: local-integration
     repository: /backup/repo
+    schedule: "* * * * *" # Every minute for fast integration testing
     env:
       RESTIC_PASSWORD: testpass
 
-# Defaults (can be overridden by labels)
-defaultSchedule: "* * * * *"
-defaultRetention: "7d:4w:6m"
-defaultStopAttached: true
+# Global defaults (can be overridden by labels)
+retention: "7d:4w:6m"
+stopAttached: true

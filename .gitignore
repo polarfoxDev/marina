@@ -1,7 +1,8 @@
 integration/.env
 integration/.tmp/
 integration/*.log
-marina
+/marina
+/manager
 /logquery
 *.db
 *.db-shm

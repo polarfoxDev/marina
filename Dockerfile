@@ -47,7 +47,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.20 AS runner
 WORKDIR /
 RUN apk add --no-cache ca-certificates bash curl coreutils tzdata \
-    && mkdir -p /backup/tmp /var/lib/marina \
+    && mkdir -p /backup /var/lib/marina \
     && update-ca-certificates
 COPY --from=build /out/marina /usr/local/bin/marina
 COPY --from=build /out/logquery /usr/local/bin/logquery

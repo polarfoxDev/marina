@@ -24,17 +24,18 @@ func TestLoad_EnvExpansionAndGetDestination(t *testing.T) {
  instances:
    - id: hetzner-s3
      repository: s3:https://fsn1.example.com/bucket
+     schedule: "0 2 * * *"
      env:
        AWS_ACCESS_KEY_ID: ${AWS_KEY}
        AWS_SECRET_ACCESS_KEY: $AWS_SECRET
        RESTIC_PASSWORD: ${RESTIC_PASS}
    - id: local
      repository: /mnt/backup/restic
+     schedule: "0 3 * * *"
      env:
        RESTIC_PASSWORD: direct
- defaultSchedule: "0 2 * * *"
- defaultRetention: "14d:8w:12m"
- defaultStopAttached: true
+ retention: "14d:8w:12m"
+ stopAttached: true
 `
 	p := writeTempConfig(t, cfgYAML)
 	cfg, err := Load(p)

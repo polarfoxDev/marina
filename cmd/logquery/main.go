@@ -12,14 +12,14 @@ import (
 
 func main() {
 	dbPath := flag.String("db", "/var/lib/marina/logs.db", "Path to logs database")
-	jobID := flag.String("job", "", "Filter by job ID")
-	instanceID := flag.String("instance", "", "Filter by instance ID")
+	targetID := flag.String("target", "", "Filter by target ID (e.g., 'volume:mydata')")
+	instanceID := flag.String("instance", "", "Filter by instance ID (e.g., 'hetzner-s3')")
 	level := flag.String("level", "", "Filter by log level (DEBUG, INFO, WARN, ERROR)")
 	since := flag.String("since", "", "Filter logs since time (RFC3339 format)")
 	until := flag.String("until", "", "Filter logs until time (RFC3339 format)")
 	limit := flag.Int("limit", 100, "Maximum number of logs to return")
 	prune := flag.String("prune", "", "Prune logs older than duration (e.g., '720h' for 30 days)")
-	
+
 	flag.Parse()
 
 	logger, err := logging.New(*dbPath, os.Stderr)
@@ -47,7 +47,7 @@ func main() {
 
 	// Build query options
 	opts := logging.QueryOptions{
-		JobID:      *jobID,
+		TargetID:   *targetID,
 		InstanceID: *instanceID,
 		Limit:      *limit,
 	}
@@ -88,27 +88,27 @@ func main() {
 
 	// Print results in a table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TIMESTAMP\tLEVEL\tJOB\tINSTANCE\tMESSAGE")
-	fmt.Fprintln(w, "─────────\t─────\t───\t────────\t───────")
-	
+	fmt.Fprintln(w, "TIMESTAMP\tLEVEL\tINSTANCE\tTARGET\tMESSAGE")
+	fmt.Fprintln(w, "─────────\t─────\t────────\t──────\t───────")
+
 	for _, entry := range entries {
 		ts := entry.Timestamp.Format("2006-01-02 15:04:05")
-		job := entry.JobID
-		if job == "" {
-			job = "-"
-		}
 		instance := entry.InstanceID
 		if instance == "" {
 			instance = "-"
+		}
+		target := entry.TargetID
+		if target == "" {
+			target = "-"
 		}
 		// Truncate message if too long
 		msg := entry.Message
 		if len(msg) > 80 {
 			msg = msg[:77] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", ts, entry.Level, job, instance, msg)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", ts, entry.Level, instance, target, msg)
 	}
-	
+
 	w.Flush()
 	fmt.Printf("\nShowing %d results\n", len(entries))
 }

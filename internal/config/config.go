@@ -10,16 +10,17 @@ import (
 
 // Config represents the complete configuration file
 type Config struct {
-	Instances           []BackupInstance `yaml:"instances"`
-	DefaultSchedule     string           `yaml:"defaultSchedule,omitempty"`
-	DefaultRetention    string           `yaml:"defaultRetention,omitempty"`
-	DefaultStopAttached *bool            `yaml:"defaultStopAttached,omitempty"`
+	Instances    []BackupInstance `yaml:"instances"`
+	Retention    string           `yaml:"retention,omitempty"`    // Global default retention
+	StopAttached *bool            `yaml:"stopAttached,omitempty"` // Global default stopAttached
 }
 
 // BackupInstance represents a backup instance configuration
 type BackupInstance struct {
 	ID         string            `yaml:"id"`
 	Repository string            `yaml:"repository"`
+	Schedule   string            `yaml:"schedule"`            // Cron schedule for this instance's backups
+	Retention  string            `yaml:"retention,omitempty"` // Optional: instance-specific retention (overrides global)
 	Env        map[string]string `yaml:"env"`
 }
 
@@ -38,6 +39,8 @@ func Load(path string) (*Config, error) {
 	// Expand environment variables in all fields
 	for i := range cfg.Instances {
 		cfg.Instances[i].Repository = expandEnv(cfg.Instances[i].Repository)
+		cfg.Instances[i].Schedule = expandEnv(cfg.Instances[i].Schedule)
+		cfg.Instances[i].Retention = expandEnv(cfg.Instances[i].Retention)
 		for k, v := range cfg.Instances[i].Env {
 			cfg.Instances[i].Env[k] = expandEnv(v)
 		}

@@ -31,24 +31,30 @@ Marina uses a two-tier configuration approach:
 destinations:
   - id: hetzner-s3
     repository: s3:https://fsn1.your-objectstorage.com/bucket
+    schedule: "0 2 * * *" # Cron schedule for this instance's backups
+    retention: "30d:12w:24m" # Optional: instance-specific retention
     env:
       AWS_ACCESS_KEY_ID: ${AWS_KEY}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET}
       RESTIC_PASSWORD: ${RESTIC_PASS}
   - id: local-backup
     repository: /mnt/backup/restic
+    schedule: "0 3 * * *"
     env:
       RESTIC_PASSWORD: direct-value-also-works
 
-# Optional: Default settings that can be overridden by Docker labels
-defaultSchedule: "0 2 * * *" # Cron format: minute hour day month weekday
-defaultRetention: "14d:8w:12m" # Format: daily:weekly:monthly
-defaultStopAttached: true # Stop containers when backing up volumes
+# Global defaults that can be overridden by instance config or Docker labels
+retention: "14d:8w:12m" # Format: daily:weekly:monthly
+stopAttached: true # Stop containers when backing up volumes
 ```
 
 Environment variables in config.yml are expanded using `${VAR_NAME}` or `$VAR_NAME` syntax.
 
-**Default settings**: Config can define `defaultSchedule`, `defaultRetention`, and `defaultStopAttached` that apply to all backup targets unless overridden by Docker labels. Priority: Label > Config default > Hardcoded default (schedule: "0 3 \* \* _" for volumes, "30 2 _ \* \*" for DBs; retention: "7d:4w:6m"; stopAttached: false).
+**Configuration hierarchy**: Instance config > Global config > Docker labels > Hardcoded defaults
+
+- Schedule: Required per-instance in config.yml
+- Retention: Instance-specific (optional) > Global `retention` > Label > Hardcoded default "7d:4w:6m"
+- StopAttached: Global `stopAttached` > Label > Hardcoded default false
 
 ### Label-Driven Configuration
 
@@ -58,9 +64,8 @@ All backup configuration lives in Docker labels with namespace `eu.polarnight.ma
 
 ```yaml
 eu.polarnight.marina.enabled: "true"
-eu.polarnight.marina.schedule: "0 3 * * *" # Standard cron (5 fields)
-eu.polarnight.marina.instanceID: "hetzner-s3" # Maps to config.yml
-eu.polarnight.marina.retention: "7d:14w:6m" # daily:weekly:monthly
+eu.polarnight.marina.instanceID: "hetzner-s3" # Maps to config.yml instance (schedule comes from there)
+eu.polarnight.marina.retention: "7d:14w:6m" # Optional: daily:weekly:monthly (overrides global/instance retention)
 eu.polarnight.marina.paths: "/" # Relative to volume/_data
 eu.polarnight.marina.stopAttached: "true" # Stop containers using volume
 ```
@@ -68,22 +73,32 @@ eu.polarnight.marina.stopAttached: "true" # Stop containers using volume
 **DB backup labels** (on DB containers):
 
 ```yaml
+eu.polarnight.marina.enabled: "true"
 eu.polarnight.marina.db: "postgres" # postgres|mysql|mariadb|mongo|redis
-eu.polarnight.marina.dump.args: "--clean,--if-exists"
+eu.polarnight.marina.instanceID: "hetzner-s3" # Maps to config.yml instance
+eu.polarnight.marina.dump.args: "--clean,--if-exists" # For postgres
+# For MySQL/MariaDB, pass credentials via dump.args (no MYSQL_PWD needed):
+# eu.polarnight.marina.dump.args: "-uroot,-p${PASSWORD}"
 ```
+
+**Important for MySQL/MariaDB**: Do NOT set `MYSQL_PWD` environment variable as it interferes with container initialization. Instead, pass credentials via `dump.args` label using `-uroot,-pPASSWORD` format (no spaces after commas).
 
 ### Data Flow Patterns
 
 1. **Volume backups**:
 
-   - Paths constructed as `/var/lib/docker/volumes/{name}/_data/{path}`
+   - Volume data copied to staging directory via temporary Alpine container with volume mounted read-only
+   - Temporary container started with both the source volume mounted at `/source` (read-only) and the staging volume (same as Marina's `/backup`) mounted at `/backup`
+   - Marina automatically detects its staging volume by inspecting its own container mounts
+   - Data copied using `cp -a` to preserve attributes into `/backup/volume/{name}/{timestamp}/`
+   - Staging subdirectory cleaned up automatically after backup completes
    - If `stopAttached=true`, stops non-readonly mounted containers before backup
    - Pre/post hooks execute in _first attached container_ (`AttachedCtrs[0]`)
 
 2. **DB backups**:
 
-   - Dump executed _inside DB container_ via `docker exec` → staged to `{StagingDir}/db/{name}/{timestamp}`
-   - Commands built per DB kind in `buildDumpCmd()` (see `runner.go:155-180`)
+   - Dump executed _inside DB container_ via `docker exec` to `/tmp/marina-{timestamp}`
+   - Dump file copied out using Docker API to Marina's staging directory: `/backup/db/{name}/{timestamp}`
    - Staging directory cleaned up after backup
    - Pre/post hooks execute in the DB container itself
 

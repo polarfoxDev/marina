@@ -1,6 +1,8 @@
 instances:
   - id: hetzner-s3
     repository: s3:https://fsn1.your-objectstorage.com/restic12t681
+    schedule: "0 2 * * *" # Daily at 2 AM - backs up all volumes/DBs assigned to this instance
+    retention: "30d:12w:24m" # Optional: instance-specific retention (overrides global)
     env:
       AWS_ACCESS_KEY_ID: your-access-key
       AWS_SECRET_ACCESS_KEY: your-secret-key
@@ -8,24 +10,25 @@ instances:
       RESTIC_PASSWORD: your-restic-password
   - id: local-backup
     repository: /mnt/backup/restic
+    schedule: "0 3 * * *" # Daily at 3 AM
+    # No retention specified - will use global default below
     env:
       RESTIC_PASSWORD: your-restic-password
   - id: env-example
     repository: s3:https://nyc3.digitaloceanspaces.com/my-backup-bucket
+    schedule: "30 2 * * *" # Daily at 2:30 AM
     env:
       AWS_ACCESS_KEY_ID: ${DO_SPACES_KEY}
       AWS_SECRET_ACCESS_KEY: ${DO_SPACES_SECRET}
       AWS_DEFAULT_REGION: nyc3
       RESTIC_PASSWORD: ${RESTIC_PASS}
 
-# Optional: Default settings that can be overridden by Docker labels
+# Global defaults (can be overridden by instance config or Docker labels)
 # If not specified here, Marina uses hardcoded defaults:
-#   - schedule: "0 3 * * *" for volumes, "30 2 * * *" for databases
 #   - retention: "7d:4w:6m" (7 daily, 4 weekly, 6 monthly)
 #   - stopAttached: false
-defaultSchedule: "0 2 * * *" # Cron format: minute hour day month weekday
-defaultRetention: "14d:8w:12m" # Format: daily:weekly:monthly
-defaultStopAttached: true # Stop containers when backing up volumes
+retention: "14d:8w:12m" # Format: daily:weekly:monthly - applies to all instances unless overridden
+stopAttached: true # Stop containers when backing up volumes
 
 # Dynamic discovery settings (can also be set via environment variables):
 # DISCOVERY_INTERVAL: How often to poll for container/volume changes (default: 30s)

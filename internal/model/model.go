@@ -13,12 +13,11 @@ const (
 
 type InstanceID string
 
-// What we back up (one unit of work)
+// BackupTarget represents a single volume or database to back up
 type BackupTarget struct {
 	ID         string     // stable identifier; for volume: "volume:<name>", for DB container: "container:<id>"
 	Name       string     // human label (volume name or container name)
 	Type       TargetType // volume|db
-	Schedule   string     // cron "0 3 * * *"
 	InstanceID InstanceID // e.g. "hetzner-s3"
 	Retention  Retention
 	Exclude    []string
@@ -34,6 +33,14 @@ type BackupTarget struct {
 	DBKind      string // "postgres", "mysql", ...
 	ContainerID string // DB container to exec dump in
 	DumpArgs    []string
+}
+
+// InstanceBackupJob represents all targets that should be backed up together for an instance
+type InstanceBackupJob struct {
+	InstanceID InstanceID
+	Schedule   string // cron schedule from config
+	Targets    []BackupTarget
+	Retention  Retention // Common retention policy (from first target or config default)
 }
 
 type Retention struct {

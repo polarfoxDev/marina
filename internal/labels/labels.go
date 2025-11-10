@@ -2,7 +2,6 @@ package labels
 
 const (
 	LEnabled    = "eu.polarnight.marina.enabled"
-	LSchedule   = "eu.polarnight.marina.schedule"
 	LInstanceID = "eu.polarnight.marina.instanceID"
 	LRetention  = "eu.polarnight.marina.retention"
 	LExclude    = "eu.polarnight.marina.exclude"

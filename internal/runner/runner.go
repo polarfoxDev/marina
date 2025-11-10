@@ -17,279 +17,407 @@ import (
 	"github.com/polarfoxDev/marina/internal/model"
 )
 
+type cleanupFunc func()
+
 type Runner struct {
 	Cron            *cron.Cron
 	BackupInstances map[string]*backend.BackupInstance // keyed by destination ID
 	Docker          *client.Client
-	VolumeRoot      string // usually /var/lib/docker/volumes
-	StagingDir      string // e.g. /backup/tmp
 	Logger          *logging.Logger
 
 	// Track scheduled jobs for dynamic updates
-	scheduledJobs map[string]cron.EntryID       // target ID -> cron entry ID
-	targets       map[string]model.BackupTarget // target ID -> target config
+	scheduledJobs map[model.InstanceID]cron.EntryID            // instance ID -> cron entry ID
+	jobs          map[model.InstanceID]model.InstanceBackupJob // instance ID -> backup job config
 }
 
-func New(instances map[string]*backend.BackupInstance, docker *client.Client, volRoot, staging string, logger *logging.Logger) *Runner {
+func New(instances map[string]*backend.BackupInstance, docker *client.Client, logger *logging.Logger) *Runner {
 	return &Runner{
 		Cron:            cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
 		BackupInstances: instances,
 		Docker:          docker,
-		VolumeRoot:      volRoot,
-		StagingDir:      staging,
 		Logger:          logger,
-		scheduledJobs:   make(map[string]cron.EntryID),
-		targets:         make(map[string]model.BackupTarget),
+		scheduledJobs:   make(map[model.InstanceID]cron.EntryID),
+		jobs:            make(map[model.InstanceID]model.InstanceBackupJob),
 	}
 }
 
-func (r *Runner) ScheduleTarget(t model.BackupTarget) error {
+func (r *Runner) ScheduleJob(job model.InstanceBackupJob) error {
 	// Check if already scheduled
-	if existingEntry, ok := r.scheduledJobs[t.ID]; ok {
+	if existingEntry, ok := r.scheduledJobs[job.InstanceID]; ok {
 		// Check if schedule or config changed
-		if existing, found := r.targets[t.ID]; found {
-			if existing.Schedule == t.Schedule && targetsEqual(existing, t) {
+		if existing, found := r.jobs[job.InstanceID]; found {
+			if existing.Schedule == job.Schedule && jobsEqual(existing, job) {
 				// No changes, skip
 				return nil
 			}
 		}
 		// Remove old entry
 		r.Cron.Remove(existingEntry)
-		delete(r.scheduledJobs, t.ID)
+		delete(r.scheduledJobs, job.InstanceID)
 	}
 
 	// Schedule new job
-	entryID, err := r.Cron.AddFunc(t.Schedule, func() {
+	entryID, err := r.Cron.AddFunc(job.Schedule, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
 		defer cancel()
-		
-		// Create job logger with context
-		jobLogger := r.Logger.NewJobLogger(t.ID, string(t.InstanceID))
-		
-		jobLogger.Info("backup job started")
+
+		// Create instance-level logger
+		instanceLogger := r.Logger.NewJobLogger(string(job.InstanceID))
+
+		instanceLogger.Info("instance backup started (%d targets)", len(job.Targets))
 		startTime := time.Now()
-		
-		if err := r.runOnce(ctx, t); err != nil {
-			jobLogger.Error("backup job failed: %v", err)
+
+		if err := r.runInstanceBackup(ctx, job, instanceLogger); err != nil {
+			instanceLogger.Error("instance backup failed: %v", err)
 		} else {
 			duration := time.Since(startTime)
-			jobLogger.Info("backup job completed successfully (duration: %v)", duration)
+			instanceLogger.Info("instance backup completed (duration: %v)", duration)
 		}
 	})
 	if err != nil {
 		return err
 	}
 
-	r.scheduledJobs[t.ID] = entryID
-	r.targets[t.ID] = t
+	r.scheduledJobs[job.InstanceID] = entryID
+	r.jobs[job.InstanceID] = job
 	return nil
 }
 
-// RemoveTarget removes a scheduled backup target
-func (r *Runner) RemoveTarget(targetID string) {
-	if entryID, ok := r.scheduledJobs[targetID]; ok {
+// RemoveJob removes a scheduled backup job for an instance
+func (r *Runner) RemoveJob(instanceID model.InstanceID) {
+	if entryID, ok := r.scheduledJobs[instanceID]; ok {
 		r.Cron.Remove(entryID)
-		delete(r.scheduledJobs, targetID)
-		delete(r.targets, targetID)
+		delete(r.scheduledJobs, instanceID)
+		delete(r.jobs, instanceID)
 	}
 }
 
-// SyncTargets updates the scheduler with a new set of discovered targets
-// Adds new targets, removes deleted ones, and updates changed ones
-func (r *Runner) SyncTargets(newTargets []model.BackupTarget) {
-	r.Logger.Info("syncing %d discovered targets...", len(newTargets))
-	newSet := make(map[string]model.BackupTarget)
-	for _, t := range newTargets {
-		newSet[t.ID] = t
+// SyncJobs updates the scheduler with a new set of discovered jobs
+// Adds new jobs, removes deleted ones, and updates changed ones
+func (r *Runner) SyncJobs(newJobs []model.InstanceBackupJob) {
+	r.Logger.Info("syncing %d discovered instance jobs...", len(newJobs))
+	newSet := make(map[model.InstanceID]model.InstanceBackupJob)
+	for _, j := range newJobs {
+		newSet[j.InstanceID] = j
 	}
 
-	// Remove targets that no longer exist
-	for id := range r.targets {
+	// Remove jobs that no longer exist
+	for id := range r.jobs {
 		if _, exists := newSet[id]; !exists {
-			r.Logger.Info("removing target %s (no longer exists)", id)
-			r.RemoveTarget(id)
+			r.Logger.Info("removing instance job %s (no longer exists)", id)
+			r.RemoveJob(id)
 		}
 	}
 
-	// Add or update targets
-	for id, t := range newSet {
+	// Add or update jobs
+	for id, job := range newSet {
 		// Validate instance exists
-		if _, ok := r.BackupInstances[string(t.InstanceID)]; !ok {
-			r.Logger.Warn("target %s references unknown instance %q, skipping", id, t.InstanceID)
+		if _, ok := r.BackupInstances[string(job.InstanceID)]; !ok {
+			r.Logger.Warn("instance job %s references unknown instance, skipping", id)
 			continue
 		}
 
 		// Check if it's new or changed BEFORE scheduling
-		existing, found := r.targets[id]
+		existing, found := r.jobs[id]
 		isNew := !found
-		isChanged := found && !targetsEqual(existing, t)
+		isChanged := found && !jobsEqual(existing, job)
 
-		if err := r.ScheduleTarget(t); err != nil {
-			r.Logger.Error("schedule %s: %v", id, err)
+		if err := r.ScheduleJob(job); err != nil {
+			r.Logger.Error("schedule instance %s: %v", id, err)
 		} else {
 			// Only log if it's new or changed
 			if isNew || isChanged {
-				r.Logger.Info("scheduled %s (name: %s, instance: %s, schedule: %s)", id, t.Name, t.InstanceID, t.Schedule)
+				r.Logger.Info("scheduled instance %s (%d targets, schedule: %s)", id, len(job.Targets), job.Schedule)
 			}
 		}
 	}
 }
 
-// targetsEqual checks if two targets are functionally equivalent
-func targetsEqual(a, b model.BackupTarget) bool {
-	return a.Schedule == b.Schedule &&
-		a.InstanceID == b.InstanceID &&
-		a.Type == b.Type &&
-		a.StopAttached == b.StopAttached &&
-		a.PreHook == b.PreHook &&
-		a.PostHook == b.PostHook &&
-		strings.Join(a.Paths, ",") == strings.Join(b.Paths, ",") &&
-		strings.Join(a.Tags, ",") == strings.Join(b.Tags, ",") &&
-		strings.Join(a.Exclude, ",") == strings.Join(b.Exclude, ",") &&
-		strings.Join(a.DumpArgs, ",") == strings.Join(b.DumpArgs, ",") &&
-		a.Retention.KeepDaily == b.Retention.KeepDaily &&
-		a.Retention.KeepWeekly == b.Retention.KeepWeekly &&
-		a.Retention.KeepMonthly == b.Retention.KeepMonthly
-}
+// jobsEqual checks if two instance backup jobs are functionally equivalent
+func jobsEqual(a, b model.InstanceBackupJob) bool {
+	if a.Schedule != b.Schedule || len(a.Targets) != len(b.Targets) {
+		return false
+	}
 
+	// Compare targets (simplified - just check IDs and key fields)
+	aIDs := make(map[string]bool)
+	for _, t := range a.Targets {
+		aIDs[t.ID] = true
+	}
+	for _, t := range b.Targets {
+		if !aIDs[t.ID] {
+			return false
+		}
+	}
+
+	return true
+}
 func (r *Runner) Start()                   { r.Cron.Start() }
 func (r *Runner) Stop(ctx context.Context) { r.Cron.Stop() }
 
-func (r *Runner) TriggerNow(ctx context.Context, t model.BackupTarget) error {
-	return r.runOnce(ctx, t)
+func (r *Runner) TriggerNow(ctx context.Context, job model.InstanceBackupJob) error {
+	instanceLogger := r.Logger.NewJobLogger(string(job.InstanceID))
+	return r.runInstanceBackup(ctx, job, instanceLogger)
 }
 
-func (r *Runner) runOnce(ctx context.Context, t model.BackupTarget) error {
-	jobLogger := r.Logger.NewJobLogger(t.ID, string(t.InstanceID))
-	switch t.Type {
-	case model.TargetVolume:
-		return r.backupVolume(ctx, t, jobLogger)
-	case model.TargetDB:
-		return r.backupDB(ctx, t, jobLogger)
-	default:
-		return fmt.Errorf("unknown target type: %s", t.Type)
-	}
-}
-
-func (r *Runner) backupVolume(ctx context.Context, target model.BackupTarget, jobLogger *logging.JobLogger) error {
-	dest, ok := r.BackupInstances[string(target.InstanceID)]
+// runInstanceBackup executes all backups for an instance in a single Restic operation
+func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackupJob, instanceLogger *logging.JobLogger) error {
+	dest, ok := r.BackupInstances[string(job.InstanceID)]
 	if !ok {
-		return fmt.Errorf("instance %q not found", target.InstanceID)
+		return fmt.Errorf("instance %q not found", job.InstanceID)
 	}
 
-	// Optionally call pre hook in first attached container
+	// Generate single timestamp for this instance backup run
+	timestamp := time.Now().Format("20060102-150405")
+
+	// Collect all staging paths from all targets
+	var allPaths []string
+	var allTags []string
+	var allExcludes []string
+
+	// Track cleanup functions to defer
+	var cleanups []cleanupFunc
+	defer func() {
+		for _, cleanup := range cleanups {
+			cleanup()
+		}
+	}()
+
+	// Track failed targets
+	var failedTargets []string
+
+	// Process each target and collect staged paths
+	for _, target := range job.Targets {
+		// Create target-specific logger for detailed logs
+		targetLogger := instanceLogger.WithTarget(target.ID)
+		targetLogger.Info("preparing %s: %s", target.Type, target.Name)
+
+		switch target.Type {
+		case model.TargetVolume:
+			paths, cleanup, err := r.prepareVolumeBackup(ctx, string(job.InstanceID), timestamp, target, targetLogger)
+			if err != nil {
+				targetLogger.Warn("failed to prepare volume: %v", err)
+				failedTargets = append(failedTargets, fmt.Sprintf("volume:%s", target.Name))
+				continue // Skip this target but continue with others
+			}
+			allPaths = append(allPaths, paths...)
+			if cleanup != nil {
+				cleanups = append(cleanups, cleanup)
+			}
+
+		case model.TargetDB:
+			path, cleanup, err := r.prepareDBBackup(ctx, string(job.InstanceID), timestamp, target, targetLogger)
+			if err != nil {
+				targetLogger.Warn("failed to prepare db: %v", err)
+				failedTargets = append(failedTargets, fmt.Sprintf("db:%s", target.Name))
+				continue // Skip this target but continue with others
+			}
+			allPaths = append(allPaths, path)
+			if cleanup != nil {
+				cleanups = append(cleanups, cleanup)
+			}
+
+		default:
+			targetLogger.Warn("unknown target type: %s", target.Type)
+			failedTargets = append(failedTargets, fmt.Sprintf("unknown:%s", target.Name))
+			continue
+		}
+
+		// Collect tags and excludes from all targets
+		allTags = append(allTags, target.Tags...)
+		allExcludes = append(allExcludes, target.Exclude...)
+	}
+
+	// Check if all targets failed
+	if len(allPaths) == 0 {
+		if len(failedTargets) > 0 {
+			return fmt.Errorf("all targets failed: %v", failedTargets)
+		}
+		return fmt.Errorf("no paths to backup")
+	}
+
+	// Log warning if some targets failed
+	if len(failedTargets) > 0 {
+		instanceLogger.Warn("backup proceeding with %d/%d targets (%d failed: %v)",
+			len(allPaths), len(job.Targets), len(failedTargets), failedTargets)
+	}
+
+	// Deduplicate tags and excludes
+	allTags = deduplicate(allTags)
+	allExcludes = deduplicate(allExcludes)
+
+	// Perform single backup with all collected paths
+	instanceLogger.Info("backing up %d paths to instance %s", len(allPaths), job.InstanceID)
+	_, err := dest.Backup(ctx, allPaths, allTags, allExcludes)
+	if err != nil {
+		return fmt.Errorf("backup failed: %w", err)
+	}
+
+	// Apply retention policy
+	_, _ = dest.DeleteOldSnapshots(ctx, job.Retention.KeepDaily, job.Retention.KeepWeekly, job.Retention.KeepMonthly)
+
+	return nil
+}
+
+// prepareVolumeBackup prepares a volume for backup and returns the staged paths and cleanup function
+func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) ([]string, cleanupFunc, error) {
+	// Execute pre-hook in first attached container
 	if target.PreHook != "" && len(target.AttachedCtrs) > 0 {
 		if _, err := docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PreHook}); err != nil {
-			return fmt.Errorf("prehook: %w", err)
+			return nil, nil, fmt.Errorf("prehook: %w", err)
 		}
+		// Defer post-hook
 		defer func() {
-			_, _ = docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PostHook})
+			if target.PostHook != "" {
+				_, _ = docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PostHook})
+			}
 		}()
 	}
 
+	// Stop attached containers if needed
+	var stoppedContainers []string
 	if target.StopAttached && len(target.AttachedCtrs) > 0 {
-		// stop all attached containers
 		for _, ctr := range target.AttachedCtrs {
-			// skip if already stopped
 			running, err := docker.IsContainerRunning(ctx, r.Docker, ctr)
 			if err != nil {
-				return fmt.Errorf("check attached container state: %w", err)
+				return nil, nil, fmt.Errorf("check container state: %w", err)
 			}
 			if !running {
 				continue
 			}
-			// skip if mounted read-only
+
+			// Skip if mounted read-only
 			ctrInfo, err := r.Docker.ContainerInspect(ctx, ctr)
 			if err != nil {
-				return fmt.Errorf("inspect attached container: %w", err)
+				return nil, nil, fmt.Errorf("inspect container: %w", err)
 			}
-			if ctrInfo.Mounts[0].Mode == "ro" {
-				jobLogger.Info("attached container %s is mounted read-only, skipping stop/start", ctr)
+			if len(ctrInfo.Mounts) > 0 && ctrInfo.Mounts[0].Mode == "ro" {
+				jobLogger.Info("container %s is mounted read-only, skipping stop", ctr)
 				continue
 			}
-			jobLogger.Info("stopping attached container %s", ctr)
+
+			jobLogger.Info("stopping container %s", ctr)
 			if err := docker.StopContainer(ctx, r.Docker, ctr); err != nil {
-				return fmt.Errorf("stop attached container: %w", err)
+				return nil, nil, fmt.Errorf("stop container: %w", err)
 			}
-			defer func() {
-				jobLogger.Info("starting attached container %s", ctr)
-				_ = docker.StartContainer(ctx, r.Docker, ctr)
-			}()
+			stoppedContainers = append(stoppedContainers, ctr)
 		}
 	}
 
-	var paths []string
-	for _, p := range target.Paths {
-		paths = append(paths, filepath.Join(r.VolumeRoot, target.VolumeName, "_data", p))
-	}
-	_, err := dest.Backup(ctx, paths, target.Tags, target.Exclude)
+	// Copy volume data to staging
+	jobLogger.Info("copying volume %s to staging", target.VolumeName)
+	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, instanceID, timestamp, target.VolumeName, target.Paths)
 	if err != nil {
-		return err
+		// Restart stopped containers before returning error
+		for _, ctr := range stoppedContainers {
+			_ = docker.StartContainer(ctx, r.Docker, ctr)
+		}
+		return nil, nil, err
 	}
-	_, _ = dest.DeleteOldSnapshots(ctx, target.Retention.KeepDaily, target.Retention.KeepWeekly, target.Retention.KeepMonthly)
-	return nil
+
+	// Create cleanup function
+	cleanup := func() {
+		// Clean up staging directory
+		if len(stagedPaths) > 0 {
+			firstPath := stagedPaths[0]
+			dir := firstPath
+			for {
+				parent := filepath.Dir(dir)
+				if parent == "/backup" {
+					_ = os.RemoveAll(dir)
+					break
+				}
+				if parent == dir || parent == "/" {
+					break
+				}
+				dir = parent
+			}
+		}
+
+		// Restart stopped containers
+		for _, ctr := range stoppedContainers {
+			jobLogger.Info("restarting container %s", ctr)
+			_ = docker.StartContainer(ctx, r.Docker, ctr)
+		}
+	}
+
+	return stagedPaths, cleanup, nil
 }
 
-func (r *Runner) backupDB(ctx context.Context, target model.BackupTarget, jobLogger *logging.JobLogger) error {
-	dest, ok := r.BackupInstances[string(target.InstanceID)]
-	if !ok {
-		return fmt.Errorf("instance %q not found", target.InstanceID)
-	}
-
-	// Pre hook
+// prepareDBBackup prepares a database backup and returns the staged path and cleanup function
+func (r *Runner) prepareDBBackup(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) (string, cleanupFunc, error) {
+	// Execute pre-hook
 	if target.PreHook != "" {
 		if _, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PreHook}); err != nil {
-			return fmt.Errorf("prehook: %w", err)
+			return "", nil, fmt.Errorf("prehook: %w", err)
 		}
+		// Defer post-hook
 		defer func() {
-			_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PostHook})
+			if target.PostHook != "" {
+				_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PostHook})
+			}
 		}()
 	}
 
-	// Dump inside the DB container into a temporary directory, then copy to local staging
-	ts := time.Now().UTC().Format("20060102-150405")
-	containerDumpDir := fmt.Sprintf("/tmp/marina-%s", ts)
+	// Create dump inside DB container (use same timestamp as instance backup)
+	containerDumpDir := fmt.Sprintf("/tmp/marina-%s", timestamp)
 	mk := fmt.Sprintf("mkdir -p %q", containerDumpDir)
 	if _, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", mk}); err != nil {
-		return fmt.Errorf("prepare staging: %w", err)
+		return "", nil, fmt.Errorf("prepare dump dir: %w", err)
 	}
-	defer func() {
-		_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", containerDumpDir)})
-	}()
 
-	hostStagingDir := filepath.Join(r.StagingDir, "db", target.Name, ts)
+	// Prepare host staging directory
+	hostStagingDir := filepath.Join("/backup", instanceID, timestamp, "dbs", target.Name)
 	if err := os.MkdirAll(hostStagingDir, 0o755); err != nil {
-		return fmt.Errorf("prepare host staging: %w", err)
+		return "", nil, fmt.Errorf("prepare host staging: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(hostStagingDir) }()
 
+	// Build and execute dump command
 	dumpCmd, dumpFile, err := buildDumpCmd(target, containerDumpDir)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
+
+	jobLogger.Debug("executing dump command")
 	output, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", dumpCmd})
 	if err != nil {
-		return fmt.Errorf("dump failed: %w", err)
+		return "", nil, fmt.Errorf("dump failed: %w", err)
 	}
 	jobLogger.Debug("dump output: %s", output)
 
+	// Copy dump file from container
 	hostDumpPath, err := docker.CopyFileFromContainer(ctx, r.Docker, target.ContainerID, dumpFile, hostStagingDir, func(expected, written int64) {
 		if expected > 0 && expected != written {
 			jobLogger.Warn("copy warning: expected %d bytes, wrote %d", expected, written)
 		}
 	})
 	if err != nil {
-		return err
+		return "", nil, err
 	}
 
-	_, err = dest.Backup(ctx, []string{hostDumpPath}, target.Tags, target.Exclude)
-	if err != nil {
-		return err
+	// Create cleanup function
+	cleanup := func() {
+		// Clean up container dump directory
+		_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", containerDumpDir)})
+		// Clean up host staging directory
+		_ = os.RemoveAll(hostStagingDir)
 	}
-	_, _ = dest.DeleteOldSnapshots(ctx, target.Retention.KeepDaily, target.Retention.KeepWeekly, target.Retention.KeepMonthly)
-	return nil
+
+	return hostDumpPath, cleanup, nil
 }
 
+// deduplicate removes duplicate strings from a slice
+func deduplicate(slice []string) []string {
+	seen := make(map[string]bool)
+	result := []string{}
+	for _, item := range slice {
+		if !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+	return result
+}
 func buildDumpCmd(t model.BackupTarget, dumpDir string) (cmd string, output string, err error) {
 	switch t.DBKind {
 	case "postgres":

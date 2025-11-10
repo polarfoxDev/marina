@@ -53,12 +53,12 @@ func TestLogger_JobLogging(t *testing.T) {
 	}
 	defer logger.Close()
 
-	// Log with job context
-	logger.JobLog(LevelInfo, "job-123", "instance-abc", "backup started")
-	logger.JobLog(LevelInfo, "job-456", "instance-xyz", "backup completed")
+	// Log with instance and target context
+	logger.JobLog(LevelInfo, "instance-abc", "volume:mydata", "backup started")
+	logger.JobLog(LevelInfo, "instance-xyz", "container:db123", "backup completed")
 
-	// Query by job ID
-	entries, err := logger.Query(QueryOptions{JobID: "job-123"})
+	// Query by target ID
+	entries, err := logger.Query(QueryOptions{TargetID: "volume:mydata"})
 	if err != nil {
 		t.Fatalf("failed to query logs: %v", err)
 	}
@@ -67,11 +67,11 @@ func TestLogger_JobLogging(t *testing.T) {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	if entries[0].JobID != "job-123" {
-		t.Errorf("expected job ID 'job-123', got '%s'", entries[0].JobID)
-	}
 	if entries[0].InstanceID != "instance-abc" {
 		t.Errorf("expected instance ID 'instance-abc', got '%s'", entries[0].InstanceID)
+	}
+	if entries[0].TargetID != "volume:mydata" {
+		t.Errorf("expected target ID 'volume:mydata', got '%s'", entries[0].TargetID)
 	}
 	if entries[0].Message != "backup started" {
 		t.Errorf("expected message 'backup started', got '%s'", entries[0].Message)
@@ -89,9 +89,9 @@ func TestLogger_QueryByInstance(t *testing.T) {
 	defer logger.Close()
 
 	// Log entries for different instances
-	logger.JobLog(LevelInfo, "job-1", "instance-1", "message 1")
-	logger.JobLog(LevelInfo, "job-2", "instance-2", "message 2")
-	logger.JobLog(LevelInfo, "job-3", "instance-1", "message 3")
+	logger.JobLog(LevelInfo, "instance-1", "volume:vol1", "message 1")
+	logger.JobLog(LevelInfo, "instance-2", "volume:vol2", "message 2")
+	logger.JobLog(LevelInfo, "instance-1", "container:db1", "message 3")
 
 	// Query by instance ID
 	entries, err := logger.Query(QueryOptions{InstanceID: "instance-1"})

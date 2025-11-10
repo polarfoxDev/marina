@@ -7,19 +7,13 @@ services:
     volumes:
       # Docker socket access for discovery and container control
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      # Volume root for direct filesystem access
-      - /var/lib/docker/volumes:/var/lib/docker/volumes:ro
-      # Staging directory for DB dumps (must be writable)
-      - marina-staging:/backup/tmp
-      # Local backup repository directory
-      - marina-backup:/backup/restic
+      # Staging directory for DB dumps and volume copies (must be writable)
+      - marina-staging:/backup
       # Configuration file
       - ./config.yml:/app/config.yml:ro
     environment:
       # Marina runtime configuration
       CONFIG_FILE: "/app/config.yml"
-      VOLUME_ROOT: "/var/lib/docker/volumes"
-      STAGING_DIR: "/backup/tmp"
       # Dynamic discovery settings
       DISCOVERY_INTERVAL: "30s"
       ENABLE_EVENTS: "true"
