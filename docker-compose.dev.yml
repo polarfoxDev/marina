@@ -1,0 +1,49 @@
+services:
+  marina:
+    image: marina:test
+    container_name: marina-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config.yml:/app/config.yml:ro
+      - marina-data:/var/lib/marina
+      - marina-staging:/backup
+    environment:
+      CONFIG_FILE: /app/config.yml
+      API_PORT: 8080
+      # For testing, you can set faster intervals
+      DISCOVERY_INTERVAL: 60s
+      STATUS_CLEANUP_INTERVAL: 10m
+      STATUS_CLEANUP_AGE: 20m
+    networks:
+      - test-net
+
+  # Example app to test backups
+  test-postgres:
+    image: postgres:16-alpine
+    container_name: test-postgres
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      PGPASSWORD: testpass
+    volumes:
+      - test-postgres-data:/var/lib/postgresql/data
+    labels:
+      eu.polarnight.marina.enabled: "true"
+      eu.polarnight.marina.db: "postgres"
+      eu.polarnight.marina.instanceID: "local-backup"
+      eu.polarnight.marina.tags: "env:test,db:postgres"
+    networks:
+      - test-net
+
+volumes:
+  marina-data:
+  marina-staging:
+  test-postgres-data:
+
+networks:
+  test-net:
+    driver: bridge

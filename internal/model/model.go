@@ -35,8 +35,8 @@ type BackupTarget struct {
 	DumpArgs    []string
 }
 
-// InstanceBackupJob represents all targets that should be backed up together for an instance
-type InstanceBackupJob struct {
+// InstanceBackupSchedule represents all targets that should be backed up together for an instance
+type InstanceBackupSchedule struct {
 	InstanceID InstanceID
 	Schedule   string // cron schedule from config
 	Targets    []BackupTarget
@@ -68,4 +68,33 @@ type BackupJob struct {
 	SnapshotID string // restic snapshot id, if known
 	BytesAdded int64
 	FilesNew   int64
+}
+
+// JobStatusState represents the current status of a backup job
+type JobStatusState string
+
+const (
+	StatusInProgress     JobStatusState = "in_progress"
+	StatusSuccess        JobStatusState = "success"
+	StatusPartialSuccess JobStatusState = "partial_success" // completed with warnings
+	StatusFailed         JobStatusState = "failed"          // hard error
+	StatusScheduled      JobStatusState = "scheduled"       // scheduled but not yet executed
+	StatusAborted        JobStatusState = "aborted"         // interrupted by restart/shutdown
+)
+
+// JobStatus represents the persistent status of a backup target
+// Used for API/dashboard display
+type JobStatus struct {
+	ID                    int            // global unique ID
+	IID                   int            // instance unique ID
+	InstanceID            InstanceID     // destination instance
+	IsActive              bool           // whether the instance is active (= in the config)
+	Status                JobStatusState // current status
+	LastStartedAt         *time.Time     // when last backup started (nil if never run)
+	LastCompletedAt       *time.Time     // when last backup completed (nil if never completed)
+	LastTargetsSuccessful int            // number of successfully backed up targets in last run
+	LastTargetsTotal      int            // total number of targets in last run
+	NextRunAt             *time.Time     // next scheduled run (nil if not scheduled)
+	CreatedAt             time.Time      // when this job was first discovered
+	UpdatedAt             time.Time      // last status update
 }

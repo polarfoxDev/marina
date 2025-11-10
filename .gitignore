@@ -3,7 +3,7 @@ integration/.tmp/
 integration/*.log
 /marina
 /manager
-/logquery
+/api
 *.db
 *.db-shm
 *.db-wal

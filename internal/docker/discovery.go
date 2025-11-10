@@ -29,7 +29,7 @@ func NewDiscoverer(cfg *config.Config) (*Discoverer, error) {
 	return &Discoverer{cli: cli, cfg: cfg}, nil
 }
 
-func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupJob, error) {
+func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedule, error) {
 	var targets []model.BackupTarget
 
 	// Volumes with labels
@@ -129,7 +129,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupJob, e
 	}
 
 	// Group targets by instance and create InstanceBackupJobs
-	instanceMap := make(map[model.InstanceID]*model.InstanceBackupJob)
+	instanceMap := make(map[model.InstanceID]*model.InstanceBackupSchedule)
 
 	for _, t := range targets {
 		if _, exists := instanceMap[t.InstanceID]; !exists {
@@ -149,7 +149,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupJob, e
 				retention = d.cfg.Retention
 			}
 
-			instanceMap[t.InstanceID] = &model.InstanceBackupJob{
+			instanceMap[t.InstanceID] = &model.InstanceBackupSchedule{
 				InstanceID: t.InstanceID,
 				Schedule:   schedule,
 				Targets:    []model.BackupTarget{},
@@ -160,7 +160,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupJob, e
 	}
 
 	// Convert map to slice
-	var jobs []model.InstanceBackupJob
+	var jobs []model.InstanceBackupSchedule
 	for _, job := range instanceMap {
 		if job.Schedule == "" {
 			// Skip instances without a schedule

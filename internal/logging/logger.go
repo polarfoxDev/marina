@@ -30,29 +30,21 @@ type Logger struct {
 
 // LogEntry represents a single log entry
 type LogEntry struct {
-	ID         int64
-	Timestamp  time.Time
-	Level      LogLevel
-	Message    string
-	InstanceID string // backup instance ID (e.g., "hetzner-s3")
-	TargetID   string // specific target ID (e.g., "volume:mydata", "container:abc123")
+	ID           int64
+	Timestamp    time.Time
+	Level        LogLevel
+	Message      string
+	InstanceID   string // backup instance ID (e.g., "hetzner-s3")
+	TargetID     string // specific target ID (e.g., "volume:mydata", "container:abc123")
+	JobStatusID  int    // job_status.id from the status database
+	JobStatusIID int    // job_status.iid from the status database
 }
 
-// New creates a new Logger with SQLite backend
-func New(dbPath string, console io.Writer) (*Logger, error) {
+// New creates a new Logger using an existing database connection.
+// The caller is responsible for closing the database connection.
+func New(db *sql.DB, console io.Writer) (*Logger, error) {
 	if console == nil {
 		console = os.Stdout
-	}
-
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("open database: %w", err)
-	}
-
-	// Enable WAL mode for better concurrency
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("enable WAL: %w", err)
 	}
 
 	l := &Logger{
@@ -60,44 +52,11 @@ func New(dbPath string, console io.Writer) (*Logger, error) {
 		console: console,
 	}
 
-	if err := l.initSchema(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("init schema: %w", err)
-	}
-
 	return l, nil
 }
 
-// initSchema creates the log table if it doesn't exist
-func (l *Logger) initSchema() error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS logs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		timestamp DATETIME NOT NULL,
-		level TEXT NOT NULL,
-		message TEXT NOT NULL,
-		instance_id TEXT,
-		target_id TEXT
-	);
-	CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp);
-	CREATE INDEX IF NOT EXISTS idx_logs_instance_id ON logs(instance_id);
-	CREATE INDEX IF NOT EXISTS idx_logs_target_id ON logs(target_id);
-	CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
-	`
-	_, err := l.db.Exec(schema)
-	return err
-}
-
-// Close closes the database connection
-func (l *Logger) Close() error {
-	if l.db != nil {
-		return l.db.Close()
-	}
-	return nil
-}
-
 // Log writes a log entry to both console and database
-func (l *Logger) Log(level LogLevel, instanceID, targetID, format string, args ...any) {
+func (l *Logger) Log(level LogLevel, instanceID, targetID string, jobStatusID, jobStatusIID int, format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -117,8 +76,8 @@ func (l *Logger) Log(level LogLevel, instanceID, targetID, format string, args .
 
 	// Write to database
 	_, err := l.db.Exec(
-		"INSERT INTO logs (timestamp, level, message, instance_id, target_id) VALUES (?, ?, ?, ?, ?)",
-		timestamp, string(level), message, nullString(instanceID), nullString(targetID),
+		"INSERT INTO logs (timestamp, level, message, instance_id, target_id, job_status_id, job_status_iid) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		timestamp, string(level), message, nullString(instanceID), nullString(targetID), nullInt(jobStatusID), nullInt(jobStatusIID),
 	)
 	if err != nil {
 		// If DB write fails, at least we have console output
@@ -128,27 +87,27 @@ func (l *Logger) Log(level LogLevel, instanceID, targetID, format string, args .
 
 // Info logs an info-level message
 func (l *Logger) Info(format string, args ...any) {
-	l.Log(LevelInfo, "", "", format, args...)
+	l.Log(LevelInfo, "", "", 0, 0, format, args...)
 }
 
 // Warn logs a warning-level message
 func (l *Logger) Warn(format string, args ...any) {
-	l.Log(LevelWarn, "", "", format, args...)
+	l.Log(LevelWarn, "", "", 0, 0, format, args...)
 }
 
 // Error logs an error-level message
 func (l *Logger) Error(format string, args ...any) {
-	l.Log(LevelError, "", "", format, args...)
+	l.Log(LevelError, "", "", 0, 0, format, args...)
 }
 
 // Debug logs a debug-level message
 func (l *Logger) Debug(format string, args ...any) {
-	l.Log(LevelDebug, "", "", format, args...)
+	l.Log(LevelDebug, "", "", 0, 0, format, args...)
 }
 
 // JobLog logs a message associated with a specific job
-func (l *Logger) JobLog(level LogLevel, instanceID, targetID, format string, args ...any) {
-	l.Log(level, instanceID, targetID, format, args...)
+func (l *Logger) JobLog(level LogLevel, instanceID, targetID string, jobStatusID, jobStatusIID int, format string, args ...any) {
+	l.Log(level, instanceID, targetID, jobStatusID, jobStatusIID, format, args...)
 }
 
 // Logf provides compatibility with the old Logf func(string, ...any) signature
@@ -168,7 +127,7 @@ type QueryOptions struct {
 
 // Query retrieves log entries based on filters
 func (l *Logger) Query(opts QueryOptions) ([]LogEntry, error) {
-	query := "SELECT id, timestamp, level, message, COALESCE(instance_id, ''), COALESCE(target_id, '') FROM logs WHERE 1=1"
+	query := "SELECT id, timestamp, level, message, COALESCE(instance_id, ''), COALESCE(target_id, ''), COALESCE(job_status_id, 0), COALESCE(job_status_iid, 0) FROM logs WHERE 1=1"
 	args := []any{}
 
 	if opts.InstanceID != "" {
@@ -205,11 +164,43 @@ func (l *Logger) Query(opts QueryOptions) ([]LogEntry, error) {
 	}
 	defer rows.Close()
 
-	var entries []LogEntry
+	// Initialize as empty slice so JSON encodes as [] instead of null
+	entries := make([]LogEntry, 0)
 	for rows.Next() {
 		var e LogEntry
 		var levelStr string
-		if err := rows.Scan(&e.ID, &e.Timestamp, &levelStr, &e.Message, &e.InstanceID, &e.TargetID); err != nil {
+		if err := rows.Scan(&e.ID, &e.Timestamp, &levelStr, &e.Message, &e.InstanceID, &e.TargetID, &e.JobStatusID, &e.JobStatusIID); err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+		e.Level = LogLevel(levelStr)
+		entries = append(entries, e)
+	}
+
+	return entries, rows.Err()
+}
+
+// QueryByJobID retrieves log entries for a specific job status ID
+func (l *Logger) QueryByJobID(jobStatusID int, limit int) ([]LogEntry, error) {
+	query := "SELECT id, timestamp, level, message, COALESCE(instance_id, ''), COALESCE(target_id, ''), COALESCE(job_status_id, 0), COALESCE(job_status_iid, 0) FROM logs WHERE job_status_id = ? ORDER BY timestamp DESC"
+	args := []any{jobStatusID}
+
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := l.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query logs by job ID: %w", err)
+	}
+	defer rows.Close()
+
+	// Initialize as empty slice so JSON encodes as [] instead of null
+	entries := make([]LogEntry, 0)
+	for rows.Next() {
+		var e LogEntry
+		var levelStr string
+		if err := rows.Scan(&e.ID, &e.Timestamp, &levelStr, &e.Message, &e.InstanceID, &e.TargetID, &e.JobStatusID, &e.JobStatusIID); err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
 		e.Level = LogLevel(levelStr)
@@ -237,49 +228,63 @@ func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: true}
 }
 
+// nullInt returns a sql.NullInt64 for use with nullable columns
+func nullInt(i int) sql.NullInt64 {
+	if i == 0 {
+		return sql.NullInt64{Valid: false}
+	}
+	return sql.NullInt64{Int64: int64(i), Valid: true}
+}
+
 // JobLogger wraps a Logger with instance and optional target context for convenient logging
 type JobLogger struct {
-	logger     *Logger
-	instanceID string
-	targetID   string
+	logger       *Logger
+	instanceID   string
+	targetID     string
+	jobStatusID  int
+	jobStatusIID int
 }
 
 // NewJobLogger creates a JobLogger with instance context (for instance-level logs)
-func (l *Logger) NewJobLogger(instanceID string) *JobLogger {
+func (l *Logger) NewJobLogger(instanceID string, jobStatusID, jobStatusIID int) *JobLogger {
 	return &JobLogger{
-		logger:     l,
-		instanceID: instanceID,
-		targetID:   "",
+		logger:       l,
+		instanceID:   instanceID,
+		targetID:     "",
+		jobStatusID:  jobStatusID,
+		jobStatusIID: jobStatusIID,
 	}
 }
 
 // WithTarget creates a new JobLogger with target context added (for target-specific logs)
 func (jl *JobLogger) WithTarget(targetID string) *JobLogger {
 	return &JobLogger{
-		logger:     jl.logger,
-		instanceID: jl.instanceID,
-		targetID:   targetID,
+		logger:       jl.logger,
+		instanceID:   jl.instanceID,
+		targetID:     targetID,
+		jobStatusID:  jl.jobStatusID,
+		jobStatusIID: jl.jobStatusIID,
 	}
 }
 
 // Info logs an info-level message with job context
 func (jl *JobLogger) Info(format string, args ...any) {
-	jl.logger.JobLog(LevelInfo, jl.instanceID, jl.targetID, format, args...)
+	jl.logger.JobLog(LevelInfo, jl.instanceID, jl.targetID, jl.jobStatusID, jl.jobStatusIID, format, args...)
 }
 
 // Warn logs a warning-level message with job context
 func (jl *JobLogger) Warn(format string, args ...any) {
-	jl.logger.JobLog(LevelWarn, jl.instanceID, jl.targetID, format, args...)
+	jl.logger.JobLog(LevelWarn, jl.instanceID, jl.targetID, jl.jobStatusID, jl.jobStatusIID, format, args...)
 }
 
 // Error logs an error-level message with job context
 func (jl *JobLogger) Error(format string, args ...any) {
-	jl.logger.JobLog(LevelError, jl.instanceID, jl.targetID, format, args...)
+	jl.logger.JobLog(LevelError, jl.instanceID, jl.targetID, jl.jobStatusID, jl.jobStatusIID, format, args...)
 }
 
 // Debug logs a debug-level message with job context
 func (jl *JobLogger) Debug(format string, args ...any) {
-	jl.logger.JobLog(LevelDebug, jl.instanceID, jl.targetID, format, args...)
+	jl.logger.JobLog(LevelDebug, jl.instanceID, jl.targetID, jl.jobStatusID, jl.jobStatusIID, format, args...)
 }
 
 // Logf provides compatibility with func(string, ...any) signature

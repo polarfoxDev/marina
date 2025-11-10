@@ -10,6 +10,7 @@ import (
 
 	"github.com/polarfoxDev/marina/internal/backend"
 	"github.com/polarfoxDev/marina/internal/config"
+	"github.com/polarfoxDev/marina/internal/database"
 	dockerd "github.com/polarfoxDev/marina/internal/docker"
 	"github.com/polarfoxDev/marina/internal/logging"
 	"github.com/polarfoxDev/marina/internal/runner"
@@ -18,15 +19,31 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// Initialize structured logger
-	logDBPath := envDefault("LOG_DB_PATH", "/var/lib/marina/logs.db")
-	logger, err := logging.New(logDBPath, os.Stdout)
+	// Initialize unified database for both job status and logs
+	dbPath := envDefault("DB_PATH", "/var/lib/marina/marina.db")
+	db, err := database.InitDB(dbPath)
+	if err != nil {
+		log.Fatalf("init database: %v", err)
+	}
+	defer db.Close()
+
+	// Initialize structured logger using the unified database
+	logger, err := logging.New(db.GetDB(), os.Stdout)
 	if err != nil {
 		log.Fatalf("init logger: %v", err)
 	}
-	defer logger.Close()
 
 	logger.Info("marina starting...")
+	logger.Info("database initialized: %s", dbPath)
+
+	// Cleanup any jobs that were interrupted by restart
+	cleaned, err := db.CleanupInterruptedJobs(ctx)
+	if err != nil {
+		log.Fatalf("cleanup interrupted jobs: %v", err)
+	}
+	if cleaned > 0 {
+		logger.Info("marked %d interrupted job(s) as aborted", cleaned)
+	}
 
 	// Load configuration from config.yml
 	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
@@ -80,6 +97,7 @@ func main() {
 		instances,
 		dcli,
 		logger,
+		db,
 	)
 
 	// Start the scheduler
@@ -134,7 +152,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("marina is running, press Ctrl+C to stop...")
+	logger.Info("marina is running...")
 
 	// Keep running until context is cancelled
 	<-ctx.Done()
