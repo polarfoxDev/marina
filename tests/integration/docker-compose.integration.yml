@@ -2,7 +2,7 @@ services:
   marina:
     image: marina:latest
     container_name: marina-it
-    user: "0:0" # run as root in integration to initialize /backup repo
+    # user: "0:0" # run as root in integration to initialize /backup repo
     restart: unless-stopped
     environment:
       - CONFIG_FILE=/config/config.yml

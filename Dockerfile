@@ -47,13 +47,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.20 AS runner
 WORKDIR /
 RUN apk add --no-cache ca-certificates bash curl coreutils tzdata \
-    && adduser -D -u 10001 marina \
-    && mkdir -p /backup/restic /backup/tmp /var/lib/marina \
-    && chown -R marina:marina /backup /var/lib/marina \
+    && mkdir -p /backup/tmp /var/lib/marina \
     && update-ca-certificates
 COPY --from=build /out/marina /usr/local/bin/marina
 COPY --from=build /out/logquery /usr/local/bin/logquery
 COPY --from=restic /usr/local/bin/restic /usr/local/bin/restic
 ENV PATH="/usr/local/bin:/usr/bin:/bin"
-USER marina
 ENTRYPOINT ["/usr/local/bin/marina"]
