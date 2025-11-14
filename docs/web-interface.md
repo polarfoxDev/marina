@@ -10,22 +10,19 @@ The API server runs automatically when you start the Marina container and expose
 
 Environment variables:
 ```bash
-API_PORT=8080                              # Port for API server (default: 8080)
-STATUS_DB_PATH=/var/lib/marina/status.db   # Status database location
-STATIC_DIR=/app/web                        # Directory for React app build
+API_PORT=8080                           # Port for API server (default: 8080)
+DB_PATH=/var/lib/marina/marina.db       # Unified database location
+STATIC_DIR=/app/web                     # Directory for React app build
 ```
 
 ### Available Endpoints
 
 #### Health & Status
 - `GET /api/health` - Health check
-- `GET /api/status` - All job statuses
-- `GET /api/status/instance/{instanceID}` - Statuses for specific instance
-- `GET /api/status/target/{targetID}` - Status for specific target
+- `GET /api/status/{instanceID}` - Statuses for specific instance
 
-#### Statistics
-- `GET /api/stats/summary` - Summary across all instances
-- `GET /api/stats/instance/{instanceID}` - Stats for specific instance
+#### Logs
+- `GET /api/logs/job/{id}` - Logs for a specific job
 
 #### Frontend (Coming Soon)
 - `GET /` - React app (serves from `/app/web`)
@@ -43,7 +40,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config.yml:/app/config.yml:ro
-      - marina-data:/var/lib/marina  # For logs.db and status.db
+      - marina-data:/var/lib/marina  # For marina.db
     environment:
       API_PORT: 8080
       CONFIG_FILE: /app/config.yml
@@ -57,14 +54,11 @@ Both the backup manager and API server start automatically and shut down gracefu
 # Check health
 curl http://localhost:8080/api/health
 
-# Get all statuses
-curl http://localhost:8080/api/status | jq
+# Get job statuses for a specific instance
+curl http://localhost:8080/api/status/hetzner-s3 | jq
 
-# Get summary statistics
-curl http://localhost:8080/api/stats/summary | jq
-
-# Get instance-specific stats
-curl http://localhost:8080/api/stats/instance/hetzner-s3 | jq
+# Get logs for a specific job (replace 1 with actual job ID)
+curl http://localhost:8080/api/logs/job/1 | jq
 ```
 
 ## Adding a React Frontend
@@ -125,14 +119,11 @@ const api = axios.create({
   baseURL: '/api'
 });
 
-export const getStatuses = () => 
-  api.get('/status').then(res => res.data);
+export const getInstanceStatus = (instanceId: string) =>
+  api.get(`/status/${instanceId}`).then(res => res.data);
 
-export const getSummary = () => 
-  api.get('/stats/summary').then(res => res.data);
-
-export const getInstanceStats = (instanceId: string) =>
-  api.get(`/stats/instance/${instanceId}`).then(res => res.data);
+export const getJobLogs = (jobId: number) =>
+  api.get(`/logs/job/${jobId}`).then(res => res.data);
 ```
 
 ## Architecture
@@ -153,8 +144,8 @@ export const getInstanceStats = (instanceId: string) =>
 │         └────┬────────────┘        │
 │              ▼                     │
 │     ┌────────────────┐             │
-│     │   status.db    │             │
-│     │   logs.db      │             │
+│     │   marina.db    │             │
+│     │  (unified DB)  │             │
 │     └────────────────┘             │
 │                                     │
 └─────────────────────────────────────┘
