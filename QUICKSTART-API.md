@@ -23,8 +23,7 @@ The Marina container now runs TWO services:
 2. **API Server** (`marina-api`) - Serves REST API on port 8080
 
 Both services share:
-- `/var/lib/marina/status.db` - Job status database
-- `/var/lib/marina/logs.db` - Structured logs database
+- `/var/lib/marina/marina.db` - Unified database storing job status and structured logs
 
 ## API Endpoints
 
