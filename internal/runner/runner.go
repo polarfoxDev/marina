@@ -298,7 +298,6 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 
 	// Track failed targets and warnings
 	var failedTargets []string
-	targetWarnings := make(map[string][]string) // target ID -> warnings
 
 	// Process each target and collect staged paths
 	for _, target := range job.Targets {
@@ -312,7 +311,6 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 			if err != nil {
 				targetLogger.Warn("failed to prepare volume: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("volume:%s", target.Name))
-				targetWarnings[target.ID] = append(targetWarnings[target.ID], fmt.Sprintf("prepare failed: %v", err))
 				continue // Skip this target but continue with others
 			}
 			allPaths = append(allPaths, paths...)
@@ -325,7 +323,6 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 			if err != nil {
 				targetLogger.Warn("failed to prepare db: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("db:%s", target.Name))
-				targetWarnings[target.ID] = append(targetWarnings[target.ID], fmt.Sprintf("prepare failed: %v", err))
 				continue // Skip this target but continue with others
 			}
 			allPaths = append(allPaths, path)
@@ -336,7 +333,6 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		default:
 			targetLogger.Warn("unknown target type: %s", target.Type)
 			failedTargets = append(failedTargets, fmt.Sprintf("unknown:%s", target.Name))
-			targetWarnings[target.ID] = append(targetWarnings[target.ID], "unknown target type")
 			continue
 		}
 
