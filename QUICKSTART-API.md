@@ -10,8 +10,8 @@ docker-compose -f docker-compose.dev.yml up --build
 
 # In another terminal, test the API
 curl http://localhost:8080/api/health
-curl http://localhost:8080/api/stats/summary | jq
-curl http://localhost:8080/api/status | jq
+curl http://localhost:8080/api/status/local-backup | jq
+curl http://localhost:8080/api/logs/job/1 | jq
 ```
 
 The API is now accessible at `http://localhost:8080`.
@@ -31,22 +31,22 @@ Both services share:
 Visit these URLs in your browser:
 - http://localhost:8080/ - Welcome page with API links
 - http://localhost:8080/api/health - Health check
-- http://localhost:8080/api/status - All backup job statuses
-- http://localhost:8080/api/stats/summary - Summary statistics
+- http://localhost:8080/api/status/{instanceID} - Job statuses for a specific instance (e.g., `/api/status/local-backup`)
+- http://localhost:8080/api/logs/job/{id} - Logs for a specific job by job status ID
 
 ## View the Status Database
 
 ```bash
 # Install jq if needed: brew install jq
 
-# Get summary of all backups
-curl -s http://localhost:8080/api/stats/summary | jq
+# Get job statuses for a specific backup instance
+curl -s http://localhost:8080/api/status/local-backup | jq
 
-# Get status for specific instance
-curl -s http://localhost:8080/api/status/instance/local-backup | jq
+# Get logs for a specific job (replace 1 with actual job ID)
+curl -s http://localhost:8080/api/logs/job/1 | jq
 
-# Monitor for errors
-watch -n 5 'curl -s http://localhost:8080/api/status | jq "[.[] | select(.status == \"error\")]"'
+# Monitor for errors (assuming local-backup instance)
+watch -n 5 'curl -s http://localhost:8080/api/status/local-backup | jq "[.[] | select(.status == \"error\")]"'
 ```
 
 ## Next Steps
