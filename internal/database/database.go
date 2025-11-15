@@ -290,6 +290,7 @@ func (d *DB) GetAllSchedules(ctx context.Context) ([]*model.InstanceBackupSchedu
 			ROW_NUMBER() OVER (PARTITION BY instance_id ORDER BY iid DESC) as rn
 		FROM job_status
 	) js ON bs.instance_id = js.instance_id AND js.rn = 1
+	ORDER BY bs.instance_id
 	`
 
 	rows, err := d.db.QueryContext(ctx, query)
