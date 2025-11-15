@@ -18,8 +18,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/polarfoxDev/marina/internal/config"
 	"github.com/polarfoxDev/marina/internal/database"
 	"github.com/polarfoxDev/marina/internal/logging"
+	"github.com/polarfoxDev/marina/internal/mesh"
 	"github.com/polarfoxDev/marina/internal/version"
 )
 
@@ -31,6 +33,37 @@ func main() {
 	if *versionFlag {
 		fmt.Printf("marina api version %s\n", version.Version)
 		os.Exit(0)
+	}
+
+	// Load configuration to get mesh settings
+	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
+	if err != nil {
+		log.Printf("Warning: could not load config: %v", err)
+		cfg = &config.Config{} // Use empty config if not available
+	}
+
+	// Determine node name
+	nodeName := ""
+	if cfg.Mesh != nil && cfg.Mesh.NodeName != "" {
+		nodeName = cfg.Mesh.NodeName
+	} else {
+		nodeName = os.Getenv("NODE_NAME")
+		if nodeName == "" {
+			hn, err := os.Hostname()
+			if err != nil {
+				log.Printf("Warning: failed to get hostname: %v", err)
+				hn = "unknown"
+			}
+			nodeName = hn
+		}
+	}
+	log.Printf("Node name: %s", nodeName)
+
+	// Initialize mesh client if peers are configured
+	var meshClient *mesh.Client
+	if cfg.Mesh != nil && len(cfg.Mesh.Peers) > 0 {
+		meshClient = mesh.NewClient(cfg.Mesh.Peers)
+		log.Printf("Mesh mode enabled with %d peer(s)", len(cfg.Mesh.Peers))
 	}
 
 	// Initialize unified database for both job status and logs
@@ -91,13 +124,14 @@ func main() {
 	// API routes
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", handleHealth())
+		r.Get("/info", handleInfo(nodeName))
 
 		r.Route("/status", func(r chi.Router) {
-			r.Get("/{instanceID}", handleGetJobStatus(db))
+			r.Get("/{instanceID}", handleGetJobStatus(db, meshClient, nodeName))
 		})
 
 		r.Route("/schedules", func(r chi.Router) {
-			r.Get("/", handleGetSchedules(db))
+			r.Get("/", handleGetSchedules(db, meshClient, nodeName))
 		})
 
 		r.Route("/logs", func(r chi.Router) {
@@ -190,22 +224,55 @@ func handleHealth() http.HandlerFunc {
 	}
 }
 
-// GET /api/schedules - Get all backup schedules
-func handleGetSchedules(db *database.DB) http.HandlerFunc {
+// Info endpoint - returns node information
+func handleInfo(nodeName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		respondJSON(w, map[string]interface{}{
+			"nodeName": nodeName,
+			"version":  version.Version,
+		})
+	}
+}
+
+// GET /api/schedules - Get all backup schedules (local + mesh peers)
+func handleGetSchedules(db *database.DB, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.Background()
+		
+		// Fetch local schedules
 		schedules, err := db.GetAllSchedules(ctx)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get schedules: %v", err), http.StatusInternalServerError)
 			return
 		}
 
+		// Add node name to local schedules
+		for _, schedule := range schedules {
+			schedule.NodeName = nodeName
+		}
+
+		// Fetch schedules from mesh peers if configured
+		if meshClient != nil {
+			peerResults := meshClient.FetchAllSchedules(ctx)
+			for _, peerResult := range peerResults {
+				if peerResult.Error != nil {
+					log.Printf("Warning: failed to fetch schedules from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					continue
+				}
+				// Add peer schedules with their node name
+				for _, peerSchedule := range peerResult.Schedules {
+					peerSchedule.NodeName = peerResult.NodeName
+					schedules = append(schedules, peerSchedule)
+				}
+			}
+		}
+
 		respondJSON(w, schedules)
 	}
 }
 
-// GET /api/status/{instanceID} - Get statuses for a specific instance
-func handleGetJobStatus(db *database.DB) http.HandlerFunc {
+// GET /api/status/{instanceID} - Get statuses for a specific instance (local + mesh peers)
+func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceID := chi.URLParam(r, "instanceID")
 		if instanceID == "" {
@@ -214,6 +281,11 @@ func handleGetJobStatus(db *database.DB) http.HandlerFunc {
 		}
 
 		ctx := context.Background()
+		
+		// Note: For job statuses, we typically only want to show data from the local node
+		// because job statuses are node-specific. However, if mesh mode is enabled,
+		// the user might want to see statuses from other nodes too.
+		// For now, we'll keep it local-only since job details page shows logs which are local.
 		statuses, err := db.GetJobStatus(ctx, instanceID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get statuses: %v", err), http.StatusInternalServerError)

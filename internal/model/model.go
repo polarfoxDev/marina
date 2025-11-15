@@ -47,10 +47,11 @@ type InstanceBackupSchedule struct {
 
 type InstanceBackupScheduleView struct {
 	InstanceID           InstanceID      `json:"instanceId"`
-	ScheduleCron         string          `json:"scheduleCron"` // cron schedule from config
-	NextRunAt            *time.Time      `json:"nextRunAt"`    // next scheduled run (nil if not scheduled)
+	NodeName             string          `json:"nodeName,omitempty"`   // Name of the node (for mesh mode)
+	ScheduleCron         string          `json:"scheduleCron"`         // cron schedule from config
+	NextRunAt            *time.Time      `json:"nextRunAt"`            // next scheduled run (nil if not scheduled)
 	TargetIDs            []string        `json:"targetIds"`
-	Retention            Retention       `json:"retention"` // Common retention policy (from first target or config default)
+	Retention            Retention       `json:"retention"`            // Common retention policy (from first target or config default)
 	CreatedAt            time.Time       `json:"createdAt"`
 	UpdatedAt            time.Time       `json:"updatedAt"`
 	LatestJobStatus      *JobStatusState `json:"latestJobStatus,omitempty"`      // status of most recent job

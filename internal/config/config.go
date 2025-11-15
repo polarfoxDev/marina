@@ -13,6 +13,13 @@ type Config struct {
 	Instances    []BackupInstance `yaml:"instances"`
 	Retention    string           `yaml:"retention,omitempty"`    // Global default retention
 	StopAttached *bool            `yaml:"stopAttached,omitempty"` // Global default stopAttached
+	Mesh         *MeshConfig      `yaml:"mesh,omitempty"`         // Optional mesh configuration
+}
+
+// MeshConfig represents mesh networking configuration for connecting multiple Marina instances
+type MeshConfig struct {
+	NodeName string   `yaml:"nodeName,omitempty"` // Optional custom node name (defaults to hostname)
+	Peers    []string `yaml:"peers,omitempty"`    // List of peer API URLs (e.g., "http://marina-node2:8080")
 }
 
 // BackupInstance represents a backup instance configuration
@@ -43,6 +50,14 @@ func Load(path string) (*Config, error) {
 		cfg.Instances[i].Retention = expandEnv(cfg.Instances[i].Retention)
 		for k, v := range cfg.Instances[i].Env {
 			cfg.Instances[i].Env[k] = expandEnv(v)
+		}
+	}
+
+	// Expand environment variables in mesh config
+	if cfg.Mesh != nil {
+		cfg.Mesh.NodeName = expandEnv(cfg.Mesh.NodeName)
+		for i := range cfg.Mesh.Peers {
+			cfg.Mesh.Peers[i] = expandEnv(cfg.Mesh.Peers[i])
 		}
 	}
 

@@ -30,6 +30,21 @@ instances:
 retention: "14d:8w:12m" # Format: daily:weekly:monthly - applies to all instances unless overridden
 stopAttached: true # Stop containers when backing up volumes
 
+# Mesh configuration (optional) - for connecting multiple Marina instances
+# When configured, the dashboard will show backup schedules from all connected nodes
+mesh:
+  # Optional custom node name (defaults to hostname if not specified)
+  nodeName: ${NODE_NAME} # or "production-server-1"
+  
+  # List of peer Marina API URLs to fetch data from
+  # Each peer should be reachable via HTTP/HTTPS
+  peers:
+    - http://marina-node2:8080
+    - http://marina-node3:8080
+    # Or use environment variables:
+    # - ${PEER_NODE_1}
+    # - ${PEER_NODE_2}
+
 # Dynamic discovery settings (can also be set via environment variables):
 # DISCOVERY_INTERVAL: How often to poll for container/volume changes (default: 30s)
 # ENABLE_EVENTS: Enable Docker event listener for real-time updates (default: true)
