@@ -27,6 +27,7 @@ type Client struct {
 	failuresMu    sync.RWMutex
 	failures      map[string]int       // peerURL -> consecutive failure count
 	backoffUntil  map[string]time.Time // peerURL -> time to retry
+	inFlight      map[string]bool      // peerURL -> whether a request is currently in flight
 }
 
 // NewClient creates a new mesh client with the specified peer URLs and auth password
@@ -37,6 +38,7 @@ func NewClient(peers []string, password string) *Client {
 		tokens:   make(map[string]string),
 		failures: make(map[string]int),
 		backoffUntil: make(map[string]time.Time),
+		inFlight: make(map[string]bool),
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second, // Increased for reliability
 		},
@@ -76,10 +78,11 @@ func (c *Client) FetchAllSchedules(ctx context.Context) []PeerSchedules {
 		go func(idx int, peerURL string) {
 			defer wg.Done()
 			
-			// Check if peer is in backoff period or has too many failures
+			// Check if peer is in backoff period or has too many failures OR already has a request in flight
 			c.failuresMu.RLock()
 			backoffUntil, inBackoff := c.backoffUntil[peerURL]
 			failCount := c.failures[peerURL]
+			isInFlight := c.inFlight[peerURL]
 			c.failuresMu.RUnlock()
 			
 			// Skip if already in backoff
@@ -101,6 +104,27 @@ func (c *Client) FetchAllSchedules(ctx context.Context) []PeerSchedules {
 				}
 				return
 			}
+			
+			// Skip if a request is already in flight - prevents request stampede
+			if isInFlight {
+				results[idx] = PeerSchedules{
+					NodeURL: peerURL,
+					Error:   fmt.Errorf("request already in flight to peer"),
+				}
+				return
+			}
+			
+			// Mark this peer as in-flight
+			c.failuresMu.Lock()
+			c.inFlight[peerURL] = true
+			c.failuresMu.Unlock()
+			
+			// Ensure we clear the in-flight flag when done
+			defer func() {
+				c.failuresMu.Lock()
+				delete(c.inFlight, peerURL)
+				c.failuresMu.Unlock()
+			}()
 			
 			result := c.fetchSchedulesFromPeer(ctx, peerURL)
 			
@@ -250,10 +274,11 @@ func (c *Client) FetchJobStatusFromPeers(ctx context.Context, instanceID string)
 		go func(idx int, peerURL string) {
 			defer wg.Done()
 			
-			// Check if peer is in backoff period or has too many failures
+			// Check if peer is in backoff period or has too many failures OR already has a request in flight
 			c.failuresMu.RLock()
 			backoffUntil, inBackoff := c.backoffUntil[peerURL]
 			failCount := c.failures[peerURL]
+			isInFlight := c.inFlight[peerURL]
 			c.failuresMu.RUnlock()
 			
 			// Skip if already in backoff
@@ -276,6 +301,28 @@ func (c *Client) FetchJobStatusFromPeers(ctx context.Context, instanceID string)
 				}
 				return
 			}
+			
+			// Skip if a request is already in flight - prevents request stampede
+			if isInFlight {
+				results[idx] = PeerJobStatuses{
+					NodeURL:    peerURL,
+					InstanceID: instanceID,
+					Error:      fmt.Errorf("request already in flight to peer"),
+				}
+				return
+			}
+			
+			// Mark this peer as in-flight
+			c.failuresMu.Lock()
+			c.inFlight[peerURL] = true
+			c.failuresMu.Unlock()
+			
+			// Ensure we clear the in-flight flag when done
+			defer func() {
+				c.failuresMu.Lock()
+				delete(c.inFlight, peerURL)
+				c.failuresMu.Unlock()
+			}()
 			
 			result := c.fetchJobStatusFromPeer(ctx, peerURL, instanceID)
 			
