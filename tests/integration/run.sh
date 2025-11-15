@@ -9,15 +9,23 @@ set -euo pipefail
 # 5. Require at least one snapshot for each target kind
 
 COMPOSE_FILE=tests/integration/docker-compose.integration.yml
+COMPOSE_FILE_MESH=tests/integration/mesh/docker-compose.mesh.yml
 IMAGE_TAG=${IMAGE_TAG:-marina:latest}
 REQ_DB_KINDS=(postgres mysql mariadb mongo)
 RESTIC_PASSWORD="testpass"
 
+# if docker network 'mesh' does not exist, create it
+if ! docker network ls --format '{{.Name}}' | grep -q '^mesh$'; then
+  echo "[info] Creating docker network 'mesh'"
+  docker network create mesh
+fi
+
 echo "[build] Building image ${IMAGE_TAG}"
 docker build -t ${IMAGE_TAG} . >/dev/null
 
-echo "[up] Starting integration stack"
+echo "[up] Starting integration stacks"
 docker compose -f "$COMPOSE_FILE" up -d --quiet-pull
+docker compose -f "$COMPOSE_FILE_MESH" up -d --quiet-pull
 
 # Give services time to initialize
 sleep 15
@@ -92,5 +100,11 @@ if [[ "$FAIL" -ne 0 ]]; then
 fi
 
 echo "Integration test PASSED"
-# docker compose -f "$COMPOSE_FILE" down -v >/dev/null || true
-# docker volume rm integration_testdata integration_staging
+
+# wait for user input before tearing down
+
+read -n 1 -s -r -p "Press any key to continue and tear down..."
+echo ""
+echo "[down] Tearing down integration stacks"
+docker compose -f "$COMPOSE_FILE" down -v >/dev/null || true
+docker compose -f "$COMPOSE_FILE_MESH" down -v >/dev/null || true

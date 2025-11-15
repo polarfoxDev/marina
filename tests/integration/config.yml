@@ -13,4 +13,4 @@ mesh:
   nodeName: server1
   authPassword: mesh
   peers:
-    - http://localhost:8081
+    - http://marina-it-mesh-2:8081

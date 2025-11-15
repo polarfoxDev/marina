@@ -22,6 +22,8 @@ services:
       - mariadb
       - mongo
       - volume-writer
+    networks:
+      - mesh
 
   postgres:
     image: postgres:16-alpine
@@ -84,3 +86,7 @@ volumes:
       dev.polarfox.marina.instanceID: "local-integration"
       dev.polarfox.marina.paths: "/"
       dev.polarfox.marina.stopAttached: "true"
+
+networks:
+  mesh:
+    external: true

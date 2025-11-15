@@ -17,10 +17,12 @@ services:
       - ./config.yml:/config/config.yml:ro
     depends_on:
       - volume-writer
+    networks:
+      - mesh
 
   volume-writer:
     image: alpine:3.20
-    container_name: volwriter-it
+    container_name: volwriter-it-mesh-2
     command: ["sh", "-lc", "printf 'hello-%s' $(date +%s) > /mnt/data/hello.txt && dd if=/dev/urandom of=/mnt/data/random.bin bs=1M count=2 && sleep infinity"]
     volumes:
       - testdata2:/mnt/data
@@ -31,6 +33,10 @@ volumes:
   testdata2:
     labels:
       dev.polarfox.marina.enabled: "true"
-      dev.polarfox.marina.instanceID: "local-integration"
+      dev.polarfox.marina.instanceID: "backup2"
       dev.polarfox.marina.paths: "/"
       dev.polarfox.marina.stopAttached: "true"
+
+networks:
+  mesh:
+    external: true
