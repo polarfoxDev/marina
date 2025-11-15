@@ -8,6 +8,7 @@ import {
   getStatusColor,
   getStatusLabel,
 } from "../utils";
+import { TargetBadge, formatTargetName } from "./TargetBadge";
 
 export function JobDetailsView() {
   const { instanceId, jobId } = useParams<{
@@ -24,46 +25,69 @@ export function JobDetailsView() {
   const [targetFilter, setTargetFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("all");
 
+  // Load job status and logs together initially and when status changes
   useEffect(() => {
     if (jobId) {
-      loadJobDetails();
-      // Only refresh if job is in progress
-      const interval = setInterval(() => {
+      loadJobStatus();
+      loadLogs();
+
+      // Poll job status every 5 seconds if in progress
+      const statusInterval = setInterval(() => {
         if (job?.status === "in_progress") {
-          loadJobDetails();
+          loadJobStatus();
         }
       }, 5000);
-      return () => clearInterval(interval);
+
+      return () => clearInterval(statusInterval);
     }
+  }, [jobId, job?.status]);
+
+  // Separate effect for log polling when job is in progress
+  useEffect(() => {
+    if (!jobId || job?.status !== "in_progress") return;
+
+    // Poll logs every 1 second when job is in progress
+    const logsInterval = setInterval(() => {
+      loadLogs();
+    }, 1000);
+
+    return () => clearInterval(logsInterval);
   }, [jobId, job?.status]);
 
   useEffect(() => {
     applyFilters();
   }, [logs, targetFilter, levelFilter]);
 
-  async function loadJobDetails() {
+  async function loadJobStatus() {
     if (!jobId || !instanceId) return;
 
     try {
       const numericJobId = parseInt(jobId, 10);
-
-      // Load job status
       const statuses = await api.getJobStatus(instanceId);
       const foundJob = statuses.find((j) => j.id === numericJobId);
       if (foundJob) {
         setJob(foundJob);
       }
+      setError(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load job status"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
-      // Load logs
+  async function loadLogs() {
+    if (!jobId) return;
+
+    try {
+      const numericJobId = parseInt(jobId, 10);
       const logsData = await api.getJobLogs(numericJobId, 5000);
       setLogs(logsData);
       setError(null);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load job details"
-      );
-    } finally {
-      setLoading(false);
+      setError(err instanceof Error ? err.message : "Failed to load logs");
     }
   }
 
@@ -177,7 +201,7 @@ export function JobDetailsView() {
               <option value="all">All Targets</option>
               {targetIds.map((targetId) => (
                 <option key={targetId} value={targetId}>
-                  {targetId}
+                  {formatTargetName(targetId)}
                 </option>
               ))}
             </select>
@@ -250,8 +274,12 @@ export function JobDetailsView() {
                         {log.level}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
-                      {log.targetId || "-"}
+                    <td className="px-6 py-4 whitespace-nowrap text-xs">
+                      {log.targetId ? (
+                        <TargetBadge targetId={log.targetId} />
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <div className="wrap-break-words max-w-3xl">

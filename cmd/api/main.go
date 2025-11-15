@@ -46,16 +46,26 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
-	// CORS configuration for development
+	// CORS configuration
+	// In production behind a reverse proxy, the frontend is served from the same origin
+	// so CORS isn't needed, but we allow localhost origins for development
+	corsOrigins := []string{
+		"http://localhost:3000",
+		"http://localhost:5173",
+		"http://localhost:8080",
+		"http://127.0.0.1:3000",
+		"http://127.0.0.1:5173",
+		"http://127.0.0.1:8080",
+	}
+
+	// Allow additional origins from environment variable (comma-separated)
+	// Example: CORS_ORIGINS=https://marina.example.com,https://backup.example.com
+	if extraOrigins := os.Getenv("CORS_ORIGINS"); extraOrigins != "" {
+		corsOrigins = append(corsOrigins, strings.Split(extraOrigins, ",")...)
+	}
+
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{
-			"http://localhost:3000",
-			"http://localhost:5173",
-			"http://localhost:8080",
-			"http://127.0.0.1:3000",
-			"http://127.0.0.1:5173",
-			"http://127.0.0.1:8080",
-		},
+		AllowedOrigins:   corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},

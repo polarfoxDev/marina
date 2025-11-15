@@ -5,6 +5,8 @@ import type {
   LogEntry,
 } from "./types";
 
+// Use relative /api path - works with reverse proxies since they forward requests
+// to the same origin where the frontend is served
 const API_BASE = "/api";
 
 class ApiError extends Error {

@@ -8,6 +8,7 @@ import {
   getStatusColor,
   getStatusLabel,
 } from "../utils";
+import { TargetBadge } from "./TargetBadge";
 
 export function SchedulesView() {
   const [schedules, setSchedules] = useState<InstanceBackupSchedule[]>([]);
@@ -74,15 +75,17 @@ export function SchedulesView() {
                   <h2 className="text-xl font-semibold text-gray-900">
                     {schedule.instanceId}
                   </h2>
-                  {schedule.latestJobStatus && (
-                    <span
-                      className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
-                        schedule.latestJobStatus
-                      )}`}
-                    >
-                      {getStatusLabel(schedule.latestJobStatus)}
-                    </span>
-                  )}
+                  <span
+                    className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      schedule.latestJobStatus
+                        ? getStatusColor(schedule.latestJobStatus)
+                        : "text-gray-700 bg-gray-100"
+                    }`}
+                  >
+                    {schedule.latestJobStatus
+                      ? getStatusLabel(schedule.latestJobStatus)
+                      : "Scheduled"}
+                  </span>
                 </div>
 
                 <div className="space-y-3 text-sm">
@@ -144,12 +147,7 @@ export function SchedulesView() {
                     <div className="text-xs text-gray-500 mb-2">Targets:</div>
                     <div className="flex flex-wrap gap-1">
                       {schedule.targetIds.slice(0, 4).map((targetId) => (
-                        <span
-                          key={targetId}
-                          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700"
-                        >
-                          {targetId}
-                        </span>
+                        <TargetBadge key={targetId} targetId={targetId} />
                       ))}
                       {schedule.targetIds.length > 4 && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
