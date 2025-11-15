@@ -1,0 +1,130 @@
+version: '3.8'
+
+# Example docker-compose setup demonstrating Marina mesh mode
+# This creates 3 Marina instances that can see each other's backup schedules
+
+services:
+  # Node 1 - Hub node that monitors all peers
+  marina-node1:
+    build: .
+    container_name: marina-node1
+    hostname: marina-node1
+    environment:
+      - NODE_NAME=node-1-production
+      - DB_PATH=/var/lib/marina/marina.db
+      - CONFIG_FILE=/app/config.yml
+      # Peer configuration via environment
+      - PEER_NODE_2=http://marina-node2:8080
+      - PEER_NODE_3=http://marina-node3:8080
+    volumes:
+      - ./config-node1.yml:/app/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - marina-node1-data:/var/lib/marina
+      - marina-node1-backup:/backup
+    ports:
+      - "8080:8080"  # Web UI accessible at http://localhost:8080
+    networks:
+      - marina-mesh
+
+  # Node 2 - Staging server
+  marina-node2:
+    build: .
+    container_name: marina-node2
+    hostname: marina-node2
+    environment:
+      - NODE_NAME=node-2-staging
+      - DB_PATH=/var/lib/marina/marina.db
+      - CONFIG_FILE=/app/config.yml
+      # This node only peers with node1 (hub-and-spoke topology)
+      - PEER_NODE_1=http://marina-node1:8080
+    volumes:
+      - ./config-node2.yml:/app/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - marina-node2-data:/var/lib/marina
+      - marina-node2-backup:/backup
+    ports:
+      - "8081:8080"  # Accessible at http://localhost:8081
+    networks:
+      - marina-mesh
+
+  # Node 3 - Development server
+  marina-node3:
+    build: .
+    container_name: marina-node3
+    hostname: marina-node3
+    environment:
+      - NODE_NAME=node-3-development
+      - DB_PATH=/var/lib/marina/marina.db
+      - CONFIG_FILE=/app/config.yml
+      # This node only peers with node1 (hub-and-spoke topology)
+      - PEER_NODE_1=http://marina-node1:8080
+    volumes:
+      - ./config-node3.yml:/app/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - marina-node3-data:/var/lib/marina
+      - marina-node3-backup:/backup
+    ports:
+      - "8082:8080"  # Accessible at http://localhost:8082
+    networks:
+      - marina-mesh
+
+  # Example application with volume to backup (for testing)
+  app-with-data:
+    image: alpine:latest
+    container_name: app-with-data
+    command: sh -c "echo 'Sample data' > /data/test.txt && tail -f /dev/null"
+    volumes:
+      - app-data:/data
+    labels:
+      - "eu.polarnight.marina.enabled=true"
+      - "eu.polarnight.marina.instanceID=local-backup"
+      - "eu.polarnight.marina.paths=/"
+    networks:
+      - marina-mesh
+
+volumes:
+  marina-node1-data:
+  marina-node1-backup:
+  marina-node2-data:
+  marina-node2-backup:
+  marina-node3-data:
+  marina-node3-backup:
+  app-data:
+
+networks:
+  marina-mesh:
+    driver: bridge
+
+# Usage:
+# 1. Create config files for each node (config-node1.yml, config-node2.yml, config-node3.yml)
+# 2. Start all services: docker-compose -f docker-compose.mesh.yml up -d
+# 3. Access any UI:
+#    - Node 1: http://localhost:8080 (will show all 3 nodes' schedules)
+#    - Node 2: http://localhost:8081 (will show node1 + node2 schedules)
+#    - Node 3: http://localhost:8082 (will show node1 + node3 schedules)
+# 4. Each node's dashboard will group schedules by node name
+
+# Example config-node1.yml:
+# instances:
+#   - id: local-backup
+#     repository: /backup/restic
+#     schedule: "0 2 * * *"
+#     env:
+#       RESTIC_PASSWORD: test123
+# mesh:
+#   nodeName: ${NODE_NAME}
+#   peers:
+#     - ${PEER_NODE_2}
+#     - ${PEER_NODE_3}
+
+# Example config-node2.yml (similar structure, different peers):
+# instances:
+#   - id: local-backup
+#     repository: /backup/restic
+#     schedule: "0 3 * * *"
+#     env:
+#       RESTIC_PASSWORD: test123
+# mesh:
+#   nodeName: ${NODE_NAME}
+#   peers:
+#     - ${PEER_NODE_1}

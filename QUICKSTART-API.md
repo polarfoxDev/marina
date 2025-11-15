@@ -57,6 +57,28 @@ watch -n 5 'curl -s http://localhost:8080/api/status/local-backup | jq "[.[] | s
 2. **Customize CORS**: Edit `cmd/api/main.go` for production domains
 3. **Monitor backups**: Build dashboard using the REST API
 4. **Set up alerts**: Query error states and send notifications
+5. **Enable mesh mode**: Connect multiple Marina instances together (see below)
+
+## Mesh Mode
+
+Marina supports mesh networking to view backups from multiple nodes in a unified dashboard.
+
+**Quick Setup:**
+
+Add to your `config.yml`:
+```yaml
+mesh:
+  nodeName: production-server-1
+  peers:
+    - http://marina-node2:8080
+    - http://marina-node3:8080
+```
+
+Now when you open any dashboard, it will show schedules from all connected nodes grouped by server.
+
+**See also:**
+- [docs/MESH.md](./docs/MESH.md) - Complete mesh documentation
+- [docker-compose.mesh.yml](./docker-compose.mesh.yml) - Example multi-node setup
 
 ## Development
 

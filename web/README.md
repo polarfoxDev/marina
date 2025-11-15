@@ -5,8 +5,18 @@ React-based web interface for monitoring Marina backup status.
 ## Features
 
 - **Schedules View**: Overview of all backup instances and their schedules
+  - **Mesh Mode**: Displays schedules from multiple Marina nodes grouped by server
 - **Job Status View**: List of all backup jobs for a specific instance
 - **Job Details View**: Detailed view with logs and filtering capabilities
+
+## Mesh Mode
+
+When Marina is configured with mesh networking (multiple instances connected together), the schedules view automatically:
+- Groups schedules by node name for easy organization
+- Shows a badge indicating how many nodes are in the mesh
+- Fetches data from all configured peer nodes
+
+See [docs/MESH.md](../docs/MESH.md) for configuration details.
 
 ## Development
 
