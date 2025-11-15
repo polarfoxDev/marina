@@ -106,8 +106,6 @@ export function SchedulesView() {
                 
                 {/* Schedule cards */}
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {/* Schedule cards */}
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                   {nodeSchedules.map((schedule) => (
                     <Link
                       key={`${nodeName}-${schedule.instanceId}`}
