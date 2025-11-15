@@ -19,19 +19,22 @@ The API is now accessible at `http://localhost:8080`.
 ## What's Running
 
 The Marina container now runs TWO services:
+
 1. **Backup Manager** (`marina`) - Discovers and schedules backups
 2. **API Server** (`marina-api`) - Serves REST API on port 8080
 
 Both services share:
+
 - `/var/lib/marina/marina.db` - Unified database storing job status and structured logs
 
 ## API Endpoints
 
 Visit these URLs in your browser:
-- http://localhost:8080/ - Welcome page with API links
-- http://localhost:8080/api/health - Health check
-- http://localhost:8080/api/status/{instanceID} - Job statuses for a specific instance (e.g., `/api/status/local-backup`)
-- http://localhost:8080/api/logs/job/{id} - Logs for a specific job by job status ID
+
+- <http://localhost:8080/> - Welcome page with API links
+- <http://localhost:8080/api/health> - Health check
+- <http://localhost:8080/api/status/{instanceID}> - Job statuses for a specific instance (e.g., `/api/status/local-backup`)
+- <http://localhost:8080/api/logs/job/{id}> - Logs for a specific job by job status ID
 
 ## View the Status Database
 
@@ -77,6 +80,7 @@ npm run build
 ```
 
 Then add to Dockerfile:
+
 ```dockerfile
 COPY web/build /app/web
 ```

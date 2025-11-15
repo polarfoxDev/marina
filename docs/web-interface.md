@@ -9,6 +9,7 @@ The API server runs automatically when you start the Marina container and expose
 ### Configuration
 
 Environment variables:
+
 ```bash
 API_PORT=8080                           # Port for API server (default: 8080)
 DB_PATH=/var/lib/marina/marina.db       # Unified database location
@@ -18,13 +19,16 @@ STATIC_DIR=/app/web                     # Directory for React app build
 ### Available Endpoints
 
 #### Health & Status
+
 - `GET /api/health` - Health check
 - `GET /api/status/{instanceID}` - Statuses for specific instance
 
 #### Logs
+
 - `GET /api/logs/job/{id}` - Logs for a specific job
 
 #### Frontend (Coming Soon)
+
 - `GET /` - React app (serves from `/app/web`)
 
 ## Docker Setup
@@ -68,6 +72,7 @@ The API is ready to serve a React app. To add your frontend:
 1. **Build your React app** and place the build output in the container at `/app/web/`
 
 2. **Update Dockerfile** to copy your build:
+  
    ```dockerfile
    # Add before the final ENTRYPOINT
    COPY --from=frontend-build /app/build /app/web
@@ -89,6 +94,7 @@ npm install axios recharts
 ```
 
 Add proxy to `web/package.json` for development:
+
 ```json
 {
   "proxy": "http://localhost:8080"
@@ -96,6 +102,7 @@ Add proxy to `web/package.json` for development:
 ```
 
 Build and add to Docker:
+
 ```dockerfile
 # In Dockerfile, add a frontend build stage
 FROM node:20-alpine AS frontend
@@ -128,25 +135,25 @@ export const getJobLogs = (jobId: number) =>
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────┐
 │     Marina Container                │
 │                                     │
-│  ┌──────────────┐  ┌─────────────┐ │
-│  │   Manager    │  │  API Server │ │
-│  │   (marina)   │  │ (marina-api)│ │
-│  │              │  │             │ │
-│  │ Backup Jobs  │  │  Port 8080  │ │
-│  │ Discovery    │  │             │ │
-│  │ Scheduling   │  │  REST API   │ │
-│  └──────┬───────┘  └──────┬──────┘ │
-│         │                 │        │
-│         └────┬────────────┘        │
-│              ▼                     │
-│     ┌────────────────┐             │
-│     │   marina.db    │             │
-│     │  (unified DB)  │             │
-│     └────────────────┘             │
+│  ┌──────────────┐  ┌─────────────┐  │
+│  │   Manager    │  │  API Server │  │
+│  │   (marina)   │  │ (marina-api)│  │
+│  │              │  │             │  │
+│  │ Backup Jobs  │  │  Port 8080  │  │
+│  │ Discovery    │  │             │  │
+│  │ Scheduling   │  │  REST API   │  │
+│  └──────┬───────┘  └──────┬──────┘  │
+│         │                 │         │
+│         └────┬────────────┘         │
+│              ▼                      │
+│     ┌────────────────┐              │
+│     │   marina.db    │              │
+│     │  (unified DB)  │              │
+│     └────────────────┘              │
 │                                     │
 └─────────────────────────────────────┘
             │
@@ -158,6 +165,7 @@ export const getJobLogs = (jobId: number) =>
 ## CORS Configuration
 
 The API server includes CORS middleware configured for local development:
+
 - Allows origins: `http://localhost:*`, `http://127.0.0.1:*`
 - Methods: GET, POST, PUT, DELETE, OPTIONS
 - Credentials: Enabled
@@ -167,6 +175,7 @@ For production, customize CORS settings in `cmd/api/main.go`.
 ## Future Enhancements
 
 Planned features for the web interface:
+
 - Real-time backup progress via WebSockets
 - Backup history and snapshot browser
 - Manual backup triggers
