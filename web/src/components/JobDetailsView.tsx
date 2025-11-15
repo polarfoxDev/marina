@@ -26,20 +26,23 @@ export function JobDetailsView() {
   const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("all");
 
   // Load job status and logs together initially and when status changes
+  // Initial load: only when jobId changes
   useEffect(() => {
     if (jobId) {
       loadJobStatus();
       loadLogs();
-
-      // Poll job status every 5 seconds if in progress
-      const statusInterval = setInterval(() => {
-        if (job?.status === "in_progress") {
-          loadJobStatus();
-        }
-      }, 5000);
-
-      return () => clearInterval(statusInterval);
     }
+  }, [jobId]);
+
+  // Poll job status every 5 seconds when job is in progress
+  useEffect(() => {
+    if (!jobId || job?.status !== "in_progress") return;
+
+    const statusInterval = setInterval(() => {
+      loadJobStatus();
+    }, 5000);
+
+    return () => clearInterval(statusInterval);
   }, [jobId, job?.status]);
 
   // Separate effect for log polling when job is in progress
