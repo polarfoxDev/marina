@@ -101,10 +101,12 @@ fi
 
 echo "Integration test PASSED"
 
-# wait for user input before tearing down
+# wait for user input before tearing down (only if DEBUG is set)
 
-read -n 1 -s -r -p "Press any key to continue and tear down..."
-echo ""
+if [[ -n "${DEBUG:-}" ]]; then
+  read -n 1 -s -r -p "Press any key to continue and tear down..."
+  echo ""
+fi
 echo "[down] Tearing down integration stacks"
 docker compose -f "$COMPOSE_FILE" down -v >/dev/null || true
 docker compose -f "$COMPOSE_FILE_MESH" down -v >/dev/null || true
