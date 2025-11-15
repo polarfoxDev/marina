@@ -30,7 +30,7 @@ volumes:
   marinabackup2:
   testdata2:
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.instanceID: "local-integration"
-      eu.polarnight.marina.paths: "/"
-      eu.polarnight.marina.stopAttached: "true"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.instanceID: "local-integration"
+      dev.polarfox.marina.paths: "/"
+      dev.polarfox.marina.stopAttached: "true"

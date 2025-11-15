@@ -76,9 +76,9 @@ services:
     volumes:
       - app-data:/data
     labels:
-      - "eu.polarnight.marina.enabled=true"
-      - "eu.polarnight.marina.instanceID=local-backup"
-      - "eu.polarnight.marina.paths=/"
+      - "dev.polarfox.marina.enabled=true"
+      - "dev.polarfox.marina.instanceID=local-backup"
+      - "dev.polarfox.marina.paths=/"
     networks:
       - marina-mesh
 
