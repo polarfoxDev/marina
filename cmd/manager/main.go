@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -14,9 +16,18 @@ import (
 	dockerd "github.com/polarfoxDev/marina/internal/docker"
 	"github.com/polarfoxDev/marina/internal/logging"
 	"github.com/polarfoxDev/marina/internal/runner"
+	"github.com/polarfoxDev/marina/internal/version"
 )
 
 func main() {
+	versionFlag := flag.Bool("version", false, "Print version and exit")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("marina manager version %s\n", version.Version)
+		os.Exit(0)
+	}
+
 	ctx := context.Background()
 
 	// Initialize unified database for both job status and logs
@@ -33,7 +44,7 @@ func main() {
 		log.Fatalf("init logger: %v", err)
 	}
 
-	logger.Info("marina starting...")
+	logger.Info("marina starting (version %s)...", version.Version)
 	logger.Info("database initialized: %s", dbPath)
 
 	// Cleanup any jobs that were interrupted by restart

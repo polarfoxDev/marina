@@ -38,11 +38,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # Build the manager and api binaries
 FROM base AS build
+ARG VERSION=dev
 COPY --from=restic /usr/local/bin/restic /usr/local/bin/restic
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -o /out/marina ./cmd/manager && \
-    CGO_ENABLED=0 go build -o /out/marina-api ./cmd/api
+    CGO_ENABLED=0 go build -ldflags "-X github.com/polarfoxDev/marina/internal/version.Version=${VERSION}" -o /out/marina ./cmd/manager && \
+    CGO_ENABLED=0 go build -ldflags "-X github.com/polarfoxDev/marina/internal/version.Version=${VERSION}" -o /out/marina-api ./cmd/api
 
 # Build the React frontend
 FROM node:20-alpine AS frontend

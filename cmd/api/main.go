@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -19,10 +20,19 @@ import (
 
 	"github.com/polarfoxDev/marina/internal/database"
 	"github.com/polarfoxDev/marina/internal/logging"
+	"github.com/polarfoxDev/marina/internal/version"
 )
 
 // API server to expose job status information and serve frontend
 func main() {
+	versionFlag := flag.Bool("version", false, "Print version and exit")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("marina api version %s\n", version.Version)
+		os.Exit(0)
+	}
+
 	// Initialize unified database for both job status and logs
 	dbPath := envDefault("DB_PATH", "/var/lib/marina/marina.db")
 	db, err := database.InitDB(dbPath)
