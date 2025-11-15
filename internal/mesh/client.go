@@ -22,19 +22,36 @@ type Client struct {
 	// Per-peer token cache with mutex for thread-safe access
 	tokensMu sync.RWMutex
 	tokens   map[string]string // peerURL -> token
+	
+	// Circuit breaker: track failed peers to avoid repeated timeouts
+	failuresMu    sync.RWMutex
+	failures      map[string]int       // peerURL -> consecutive failure count
+	backoffUntil  map[string]time.Time // peerURL -> time to retry
 }
 
 // NewClient creates a new mesh client with the specified peer URLs and auth password
 func NewClient(peers []string, password string) *Client {
-	return &Client{
+	client := &Client{
 		peers:    peers,
 		password: password,
 		tokens:   make(map[string]string),
+		failures: make(map[string]int),
+		backoffUntil: make(map[string]time.Time),
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 15 * time.Second, // Increased for reliability
 		},
-		timeout: 5 * time.Second,
+		timeout: 8 * time.Second, // Increased to allow time for auth + request
 	}
+	
+	// Pre-authenticate with all peers if password is set
+	// This avoids blocking the first request
+	if password != "" {
+		for _, peer := range peers {
+			go client.getTokenForPeer(peer)
+		}
+	}
+	
+	return client
 }
 
 // PeerSchedules represents schedules from a specific peer node
@@ -58,7 +75,31 @@ func (c *Client) FetchAllSchedules(ctx context.Context) []PeerSchedules {
 		wg.Add(1)
 		go func(idx int, peerURL string) {
 			defer wg.Done()
-			results[idx] = c.fetchSchedulesFromPeer(ctx, peerURL)
+			
+			// Check if peer is in backoff period
+			c.failuresMu.RLock()
+			backoffUntil, inBackoff := c.backoffUntil[peerURL]
+			c.failuresMu.RUnlock()
+			
+			if inBackoff && time.Now().Before(backoffUntil) {
+				// Skip this peer - it's in backoff
+				results[idx] = PeerSchedules{
+					NodeURL: peerURL,
+					Error:   fmt.Errorf("peer in backoff until %s", backoffUntil.Format("15:04:05")),
+				}
+				return
+			}
+			
+			result := c.fetchSchedulesFromPeer(ctx, peerURL)
+			
+			// Update failure tracking
+			if result.Error != nil {
+				c.recordFailure(peerURL)
+			} else {
+				c.recordSuccess(peerURL)
+			}
+			
+			results[idx] = result
 		}(i, peer)
 	}
 
@@ -196,7 +237,31 @@ func (c *Client) FetchJobStatusFromPeers(ctx context.Context, instanceID string)
 		wg.Add(1)
 		go func(idx int, peerURL string) {
 			defer wg.Done()
-			results[idx] = c.fetchJobStatusFromPeer(ctx, peerURL, instanceID)
+			
+			// Check if peer is in backoff period
+			c.failuresMu.RLock()
+			backoffUntil, inBackoff := c.backoffUntil[peerURL]
+			c.failuresMu.RUnlock()
+			
+			if inBackoff && time.Now().Before(backoffUntil) {
+				results[idx] = PeerJobStatuses{
+					NodeURL:    peerURL,
+					InstanceID: instanceID,
+					Error:      fmt.Errorf("peer in backoff until %s", backoffUntil.Format("15:04:05")),
+				}
+				return
+			}
+			
+			result := c.fetchJobStatusFromPeer(ctx, peerURL, instanceID)
+			
+			// Update failure tracking
+			if result.Error != nil {
+				c.recordFailure(peerURL)
+			} else {
+				c.recordSuccess(peerURL)
+			}
+			
+			results[idx] = result
 		}(i, peer)
 	}
 
@@ -422,7 +487,7 @@ func (c *Client) getTokenForPeer(peerURL string) string {
 	}
 	
 	// Create a separate context with timeout for login (not tied to request context)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	
 	loginReq, err := http.NewRequestWithContext(ctx, "POST", loginURL, bytes.NewReader(jsonData))
@@ -496,4 +561,36 @@ return nil, fmt.Errorf("retry: %w", err)
 }
 
 return resp, nil
+}
+
+// recordFailure increments the failure count for a peer and applies backoff if needed
+func (c *Client) recordFailure(peerURL string) {
+c.failuresMu.Lock()
+defer c.failuresMu.Unlock()
+
+c.failures[peerURL]++
+failCount := c.failures[peerURL]
+
+// Apply exponential backoff after 3 failures
+// 3 failures = 30s, 4 = 60s, 5 = 120s, 6+ = 300s
+if failCount >= 3 {
+backoffSeconds := 30
+if failCount == 4 {
+backoffSeconds = 60
+} else if failCount == 5 {
+backoffSeconds = 120
+} else if failCount >= 6 {
+backoffSeconds = 300
+}
+c.backoffUntil[peerURL] = time.Now().Add(time.Duration(backoffSeconds) * time.Second)
+}
+}
+
+// recordSuccess resets the failure count for a peer
+func (c *Client) recordSuccess(peerURL string) {
+c.failuresMu.Lock()
+defer c.failuresMu.Unlock()
+
+delete(c.failures, peerURL)
+delete(c.backoffUntil, peerURL)
 }

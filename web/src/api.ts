@@ -21,8 +21,18 @@ async function fetchJson<T>(url: string): Promise<T> {
 
   if (!response.ok) {
     // If we get 401 Unauthorized, reload the page to trigger re-authentication
+    // But only if this is an auth endpoint or we haven't reloaded recently
     if (response.status === 401) {
-      window.location.reload();
+      // Check if we recently reloaded to prevent reload loops
+      const lastReload = sessionStorage.getItem('lastAuthReload');
+      const now = Date.now();
+      
+      if (!lastReload || now - parseInt(lastReload) > 5000) {
+        // Only reload if it's been more than 5 seconds since last reload
+        sessionStorage.setItem('lastAuthReload', now.toString());
+        window.location.reload();
+      }
+      
       throw new ApiError(response.status, "Authentication required");
     }
     
