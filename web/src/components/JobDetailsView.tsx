@@ -85,7 +85,8 @@ export function JobDetailsView() {
   // Load logs when job changes (separate effect to pass nodeUrl)
   useEffect(() => {
     if (jobId && job) {
-      loadLogs(job.nodeUrl);
+      // Only pass nodeUrl if it's a non-empty string (remote job)
+      loadLogs(job.nodeUrl || undefined);
     }
   }, [jobId, job?.nodeUrl, loadLogs]);
 
@@ -106,7 +107,8 @@ export function JobDetailsView() {
 
     // Poll logs every 1 second when job is in progress
     const logsInterval = setInterval(() => {
-      loadLogs(job.nodeUrl);
+      // Only pass nodeUrl if it's a non-empty string (remote job)
+      loadLogs(job.nodeUrl || undefined);
     }, 1000);
 
     return () => clearInterval(logsInterval);
