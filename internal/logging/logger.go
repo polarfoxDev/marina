@@ -181,7 +181,7 @@ func (l *Logger) Query(opts QueryOptions) ([]LogEntry, error) {
 
 // QueryByJobID retrieves log entries for a specific job status ID
 func (l *Logger) QueryByJobID(jobStatusID int, limit int) ([]LogEntry, error) {
-	query := "SELECT id, timestamp, level, message, COALESCE(instance_id, ''), COALESCE(target_id, ''), COALESCE(job_status_id, 0), COALESCE(job_status_iid, 0) FROM logs WHERE job_status_id = ? ORDER BY timestamp DESC"
+	query := "SELECT id, timestamp, level, message, COALESCE(instance_id, ''), COALESCE(target_id, ''), COALESCE(job_status_id, 0), COALESCE(job_status_iid, 0) FROM logs WHERE job_status_id = ? ORDER BY timestamp ASC"
 	args := []any{jobStatusID}
 
 	if limit > 0 {
