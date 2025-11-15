@@ -4,6 +4,17 @@
 
 Marina is a backup orchestrator that discovers and backs up Docker volumes and databases based on Docker labels. It uses [Restic](https://restic.net/) as the backup backend and supports multiple backup destinations (S3, local, and any Restic-compatible storage).
 
+## Project Status
+
+> [!CAUTION]
+> Marina is currently in **early beta**. The core functionality is working, but the API and configuration format may change at any time.
+> There are no migration paths yet, you might need to reconfigure and delete existing backups and the marina database when upgrading to a new version.
+
+Planned features:
+
+- Recovery operations from Restic snapshots
+- Multi-node federation (mesh mode)
+
 ## Features
 
 - **Label-driven configuration**: Define backups using Docker labels on volumes and containers
@@ -196,15 +207,6 @@ docker build -t marina:dev .
 ```bash
 go test ./...
 ```
-
-## Project Status
-
-Marina is currently in **beta**. The core functionality is working, but the API and configuration format may change.
-
-Planned features:
-
-- Recovery operations from Restic snapshots
-- Multi-node federation (mesh mode)
 
 ## License
 
