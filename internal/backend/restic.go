@@ -12,6 +12,7 @@ type BackupInstance struct {
 	ID         string
 	Repository string
 	Env        map[string]string
+	Hostname   string
 }
 
 func (instance *BackupInstance) Close() error { return nil }
@@ -48,6 +49,10 @@ func (instance *BackupInstance) Init(ctx context.Context) error {
 
 func (instance *BackupInstance) Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error) {
 	args := []string{"backup"}
+	// Set hostname if configured
+	if instance.Hostname != "" {
+		args = append(args, "--host", instance.Hostname)
+	}
 	args = append(args, paths...)
 	for _, t := range tags {
 		args = append(args, "--tag", t)

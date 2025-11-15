@@ -44,20 +44,45 @@ fi
 # Simple presence checks by tag (runner passes tags from labels; here none custom so rely on paths)
 # We validate existence of dump files by grepping output of 'restic ls latest'
 FAIL=0
+LATEST_LS=$(docker exec -e RESTIC_PASSWORD="$RESTIC_PASSWORD" marina-it /usr/local/bin/restic -r /backup/repo ls latest)
+
 for KIND in "${REQ_DB_KINDS[@]}"; do
-  # Expect at least one file under db/<name>/ matching KIND naming heuristics
-  if docker exec -e RESTIC_PASSWORD="$RESTIC_PASSWORD" marina-it /usr/local/bin/restic -r /backup/repo ls latest | grep -q "/db/"; then
-    : # generic pass for presence of any db dump
+  # Check for database dumps under /dbs/<container-name>/ pattern
+  # postgres -> pg-it, mysql -> mysql-it, mariadb -> mariadb-it, mongo -> mongo-it
+  case "$KIND" in
+    postgres)
+      CONTAINER_NAME="pg-it"
+      ;;
+    mysql)
+      CONTAINER_NAME="mysql-it"
+      ;;
+    mariadb)
+      CONTAINER_NAME="mariadb-it"
+      ;;
+    mongo)
+      CONTAINER_NAME="mongo-it"
+      ;;
+  esac
+  
+  if echo "$LATEST_LS" | grep -q "/dbs/$CONTAINER_NAME/"; then
+    echo "[ok] Found $KIND dump (container: $CONTAINER_NAME)"
   else
-    echo "WARN: could not confirm db dump presence for $KIND (heuristic)" >&2
+    echo "ERROR: could not find $KIND dump for container $CONTAINER_NAME" >&2
+    FAIL=1
   fi
 done
 
 # Check volume snapshot presence by verifying file from volume-writer
-if docker exec -e RESTIC_PASSWORD="$RESTIC_PASSWORD" marina-it /usr/local/bin/restic -r /backup/repo ls latest | grep -q "hello"; then
-  echo "[ok] Found test volume file in latest snapshot"
+if echo "$LATEST_LS" | grep -q "/vol/"; then
+  echo "[ok] Found volume backup"
+  if echo "$LATEST_LS" | grep -q "hello\.txt"; then
+    echo "[ok] Found test volume file (hello.txt) in latest snapshot"
+  else
+    echo "WARN: hello.txt not found in volume backup" >&2
+  fi
 else
-  echo "WARN: test volume file not detected in latest snapshot" >&2
+  echo "ERROR: volume backup not found" >&2
+  FAIL=1
 fi
 
 if [[ "$FAIL" -ne 0 ]]; then

@@ -9,6 +9,7 @@ services:
     environment:
       - CONFIG_FILE=/config/config.yml
       - API_PORT=8080
+      - NODE_NAME=integration-server
     volumes:
       - data:/var/lib/marina/
       - /var/run/docker.sock:/var/run/docker.sock

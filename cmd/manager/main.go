@@ -53,11 +53,22 @@ func main() {
 
 	// Build map of instances from config
 	instances := make(map[string]*backend.BackupInstance)
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
+		hn, err := os.Hostname()
+		if err != nil {
+			logger.Warn("failed to get hostname: %v", err)
+			hn = "unknown"
+		}
+		nodeName = hn
+	}
+	logger.Info("using hostname %s for backups", nodeName)
 	for _, dest := range cfg.Instances {
 		instances[dest.ID] = &backend.BackupInstance{
 			ID:         dest.ID,
 			Repository: dest.Repository,
 			Env:        dest.Env,
+			Hostname:   nodeName,
 		}
 		logger.Info("loaded instance: %s -> %s", dest.ID, dest.Repository)
 	}
