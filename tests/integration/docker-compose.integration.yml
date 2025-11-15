@@ -31,10 +31,10 @@ services:
       - POSTGRES_USER=postgres
       - PGPASSWORD=pgpass
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.db: "postgres"
-      eu.polarnight.marina.instanceID: "local-integration"
-      # eu.polarnight.marina.dump.args: "-U,postgres,-h,127.0.0.1,-d,testdb"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.db: "postgres"
+      dev.polarfox.marina.instanceID: "local-integration"
+      # dev.polarfox.marina.dump.args: "-U,postgres,-h,127.0.0.1,-d,testdb"
 
   mysql:
     image: mysql:8.4
@@ -42,9 +42,9 @@ services:
     environment:
       - MYSQL_ROOT_PASSWORD=mysqlpass
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.db: "mysql"
-      eu.polarnight.marina.instanceID: "local-integration"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.db: "mysql"
+      dev.polarfox.marina.instanceID: "local-integration"
 
   mariadb:
     image: mariadb:11
@@ -52,20 +52,20 @@ services:
     environment:
       - MARIADB_ROOT_PASSWORD=maripass
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.db: "mariadb"
-      eu.polarnight.marina.instanceID: "local-integration"
-      eu.polarnight.marina.pre: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdbeforefirstdump;'"
-      eu.polarnight.marina.post: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdafterfirstdump;'"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.db: "mariadb"
+      dev.polarfox.marina.instanceID: "local-integration"
+      dev.polarfox.marina.pre: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdbeforefirstdump;'"
+      dev.polarfox.marina.post: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdafterfirstdump;'"
 
   mongo:
     image: mongo:7
     container_name: mongo-it
     command: ["--quiet"]
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.db: "mongo"
-      eu.polarnight.marina.instanceID: "local-integration"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.db: "mongo"
+      dev.polarfox.marina.instanceID: "local-integration"
 
   volume-writer:
     image: alpine:3.20
@@ -79,7 +79,7 @@ volumes:
   marinabackup:
   testdata:
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.instanceID: "local-integration"
-      eu.polarnight.marina.paths: "/"
-      eu.polarnight.marina.stopAttached: "true"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.instanceID: "local-integration"
+      dev.polarfox.marina.paths: "/"
+      dev.polarfox.marina.stopAttached: "true"

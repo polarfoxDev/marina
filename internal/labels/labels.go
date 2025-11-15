@@ -1,21 +1,21 @@
 package labels
 
 const (
-	LEnabled    = "eu.polarnight.marina.enabled"
-	LInstanceID = "eu.polarnight.marina.instanceID"
-	LRetention  = "eu.polarnight.marina.retention"
-	LExclude    = "eu.polarnight.marina.exclude"
-	LTags       = "eu.polarnight.marina.tags"
+	LEnabled    = "dev.polarfox.marina.enabled"
+	LInstanceID = "dev.polarfox.marina.instanceID"
+	LRetention  = "dev.polarfox.marina.retention"
+	LExclude    = "dev.polarfox.marina.exclude"
+	LTags       = "dev.polarfox.marina.tags"
 
 	// Volume
-	LPaths        = "eu.polarnight.marina.paths"
-	LStopAttached = "eu.polarnight.marina.stopAttached"
+	LPaths        = "dev.polarfox.marina.paths"
+	LStopAttached = "dev.polarfox.marina.stopAttached"
 
 	// DB
-	LDBKind   = "eu.polarnight.marina.db"
-	LDumpArgs = "eu.polarnight.marina.dump.args"
+	LDBKind   = "dev.polarfox.marina.db"
+	LDumpArgs = "dev.polarfox.marina.dump.args"
 
 	// Hooks (both kinds)
-	LPreHook  = "eu.polarnight.marina.pre"
-	LPostHook = "eu.polarnight.marina.post"
+	LPreHook  = "dev.polarfox.marina.pre"
+	LPostHook = "dev.polarfox.marina.post"
 )

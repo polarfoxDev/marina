@@ -11,7 +11,7 @@ Marina is a Docker label-based backup orchestrator that uses Restic as its backe
 ### Key Components
 
 - **`internal/config/config.go`**: Parses `config.yml` and expands environment variable references (`${VAR}` or `$VAR`)
-- **`internal/docker/discovery.go`**: Scans Docker API for volumes/containers with `eu.polarnight.marina.*` labels, builds `BackupTarget` models
+- **`internal/docker/discovery.go`**: Scans Docker API for volumes/containers with `dev.polarfox.marina.*` labels, builds `BackupTarget` models
 - **`internal/docker/events.go`**: Listens to Docker events API for real-time detection of container/volume lifecycle changes (create, destroy, start, stop)
 - **`internal/runner/runner.go`**: Orchestrates backup execution and manages dynamic job scheduling—handles pre/post hooks, container stop/start, and delegates to appropriate backend destination
 - **`internal/backend/restic.go`**: Wraps Restic CLI commands (backup, forget, prune) with repository and environment variables
@@ -58,27 +58,27 @@ Environment variables in config.yml are expanded using `${VAR_NAME}` or `$VAR_NA
 
 ### Label-Driven Configuration
 
-All backup configuration lives in Docker labels with namespace `eu.polarnight.marina.*`. See `labels.txt` for reference.
+All backup configuration lives in Docker labels with namespace `dev.polarfox.marina.*`. See `labels.txt` for reference.
 
 **Volume backup labels** (on volumes):
 
 ```yaml
-eu.polarnight.marina.enabled: "true"
-eu.polarnight.marina.instanceID: "hetzner-s3" # Maps to config.yml instance (schedule comes from there)
-eu.polarnight.marina.retention: "7d:14w:6m" # Optional: daily:weekly:monthly (overrides global/instance retention)
-eu.polarnight.marina.paths: "/" # Relative to volume/_data
-eu.polarnight.marina.stopAttached: "true" # Stop containers using volume
+dev.polarfox.marina.enabled: "true"
+dev.polarfox.marina.instanceID: "hetzner-s3" # Maps to config.yml instance (schedule comes from there)
+dev.polarfox.marina.retention: "7d:14w:6m" # Optional: daily:weekly:monthly (overrides global/instance retention)
+dev.polarfox.marina.paths: "/" # Relative to volume/_data
+dev.polarfox.marina.stopAttached: "true" # Stop containers using volume
 ```
 
 **DB backup labels** (on DB containers):
 
 ```yaml
-eu.polarnight.marina.enabled: "true"
-eu.polarnight.marina.db: "postgres" # postgres|mysql|mariadb|mongo|redis
-eu.polarnight.marina.instanceID: "hetzner-s3" # Maps to config.yml instance
-eu.polarnight.marina.dump.args: "--clean,--if-exists" # For postgres
+dev.polarfox.marina.enabled: "true"
+dev.polarfox.marina.db: "postgres" # postgres|mysql|mariadb|mongo|redis
+dev.polarfox.marina.instanceID: "hetzner-s3" # Maps to config.yml instance
+dev.polarfox.marina.dump.args: "--clean,--if-exists" # For postgres
 # For MySQL/MariaDB, pass credentials via dump.args (no MYSQL_PWD needed):
-# eu.polarnight.marina.dump.args: "-uroot,-p${PASSWORD}"
+# dev.polarfox.marina.dump.args: "-uroot,-p${PASSWORD}"
 ```
 
 **Important for MySQL/MariaDB**: Do NOT set `MYSQL_PWD` environment variable as it interferes with container initialization. Instead, pass credentials via `dump.args` label using `-uroot,-pPASSWORD` format (no spaces after commas).

@@ -50,16 +50,16 @@ services:
       - postgres-data:/var/lib/postgresql/data
     labels:
       # Enable Marina backup for this DB container
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.db: "postgres"
-      eu.polarnight.marina.instanceID: "hetzner-s3"
-      eu.polarnight.marina.retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
-      eu.polarnight.marina.tags: "service:postgres,env:production"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.db: "postgres"
+      dev.polarfox.marina.instanceID: "hetzner-s3"
+      dev.polarfox.marina.retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
+      dev.polarfox.marina.tags: "service:postgres,env:production"
       # Optional: custom pg_dumpall arguments (--all-databases is default)
-      # eu.polarnight.marina.dump.args: "--clean,--if-exists"
+      # dev.polarfox.marina.dump.args: "--clean,--if-exists"
       # Optional: pre/post hooks for consistency
-      eu.polarnight.marina.pre: "psql -U myapp -c 'CHECKPOINT;'"
-      eu.polarnight.marina.post: "echo 'Backup completed'"
+      dev.polarfox.marina.pre: "psql -U myapp -c 'CHECKPOINT;'"
+      dev.polarfox.marina.post: "echo 'Backup completed'"
     networks:
       - backup-net
       - app-net
@@ -76,13 +76,13 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.db: "mysql"
-      eu.polarnight.marina.instanceID: "hetzner-s3"
-      eu.polarnight.marina.retention: "7d:4w:6m"
-      eu.polarnight.marina.tags: "service:mysql,env:production"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.db: "mysql"
+      dev.polarfox.marina.instanceID: "hetzner-s3"
+      dev.polarfox.marina.retention: "7d:4w:6m"
+      dev.polarfox.marina.tags: "service:mysql,env:production"
       # Pass credentials via dump args (note: no spaces after commas)
-      eu.polarnight.marina.dump.args: "-uroot,-p${MYSQL_ROOT_PASSWORD}"
+      dev.polarfox.marina.dump.args: "-uroot,-p${MYSQL_ROOT_PASSWORD}"
     networks:
       - backup-net
       - app-net
@@ -98,15 +98,15 @@ services:
     volumes:
       - mariadb-data:/var/lib/mysql
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.db: "mariadb"
-      eu.polarnight.marina.instanceID: "hetzner-s3"
-      eu.polarnight.marina.retention: "7d:4w:6m"
-      eu.polarnight.marina.tags: "service:mariadb,env:production"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.db: "mariadb"
+      dev.polarfox.marina.instanceID: "hetzner-s3"
+      dev.polarfox.marina.retention: "7d:4w:6m"
+      dev.polarfox.marina.tags: "service:mariadb,env:production"
       # Pass credentials via dump args (note: no spaces after commas)
-      eu.polarnight.marina.dump.args: "-uroot,-p${MARIADB_ROOT_PASSWORD}"
+      dev.polarfox.marina.dump.args: "-uroot,-p${MARIADB_ROOT_PASSWORD}"
       # Optional: custom mariadb-dump arguments (--all-databases is default)
-      # eu.polarnight.marina.dump.args: "--routines,--triggers"
+      # dev.polarfox.marina.dump.args: "--routines,--triggers"
     networks:
       - backup-net
       - app-net
@@ -145,25 +145,25 @@ volumes:
   app-uploads:
     driver: local
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.instanceID: "hetzner-s3"
-      eu.polarnight.marina.retention: "14d:8w:12m"  # Keep more for user data
-      eu.polarnight.marina.paths: "/"
-      eu.polarnight.marina.stopAttached: "true"  # Stop app container during backup
-      eu.polarnight.marina.tags: "type:uploads,env:production"
-      eu.polarnight.marina.exclude: "*.tmp,cache/*,thumbnails/*"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.instanceID: "hetzner-s3"
+      dev.polarfox.marina.retention: "14d:8w:12m"  # Keep more for user data
+      dev.polarfox.marina.paths: "/"
+      dev.polarfox.marina.stopAttached: "true"  # Stop app container during backup
+      dev.polarfox.marina.tags: "type:uploads,env:production"
+      dev.polarfox.marina.exclude: "*.tmp,cache/*,thumbnails/*"
 
   # Application config volume - minimal labels (uses instance schedule and default retention)
   app-config:
     driver: local
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.instanceID: "hetzner-s3"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.instanceID: "hetzner-s3"
       # Schedule comes from instance config in config.yml
       # Retention: uses 7d:4w:6m default if not specified
       # stopAttached: defaults to false
-      eu.polarnight.marina.paths: "/"
-      eu.polarnight.marina.tags: "type:config,env:production"
+      dev.polarfox.marina.paths: "/"
+      dev.polarfox.marina.tags: "type:config,env:production"
 
 networks:
   backup-net:

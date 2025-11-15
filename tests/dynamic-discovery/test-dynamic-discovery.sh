@@ -37,9 +37,9 @@ fi
 
 log_step "Step 1: Create a test volume with backup labels"
 docker volume create \
-  --label eu.polarnight.marina.enabled=true \
-  --label eu.polarnight.marina.schedule="*/5 * * * *" \
-  --label eu.polarnight.marina.instanceID=local-backup \
+  --label dev.polarfox.marina.enabled=true \
+  --label dev.polarfox.marina.schedule="*/5 * * * *" \
+  --label dev.polarfox.marina.instanceID=local-backup \
   test-dynamic-volume
 
 log_info "Waiting 3 seconds for discovery..."
@@ -57,9 +57,9 @@ log_step "Step 2: Remove and recreate volume with different schedule"
 docker volume rm test-dynamic-volume
 
 docker volume create \
-  --label eu.polarnight.marina.enabled=true \
-  --label eu.polarnight.marina.schedule="*/10 * * * *" \
-  --label eu.polarnight.marina.instanceID=local-backup \
+  --label dev.polarfox.marina.enabled=true \
+  --label dev.polarfox.marina.schedule="*/10 * * * *" \
+  --label dev.polarfox.marina.instanceID=local-backup \
   test-dynamic-volume
 
 log_info "Waiting 3 seconds for discovery..."
@@ -82,10 +82,10 @@ echo ""
 log_step "Step 3: Test container with DB backup labels"
 docker run -d \
   --name test-postgres \
-  --label eu.polarnight.marina.enabled=true \
-  --label eu.polarnight.marina.db=postgres \
-  --label eu.polarnight.marina.schedule="*/15 * * * *" \
-  --label eu.polarnight.marina.instanceID=local-backup \
+  --label dev.polarfox.marina.enabled=true \
+  --label dev.polarfox.marina.db=postgres \
+  --label dev.polarfox.marina.schedule="*/15 * * * *" \
+  --label dev.polarfox.marina.instanceID=local-backup \
   -e POSTGRES_PASSWORD=testpass \
   postgres:16-alpine
 

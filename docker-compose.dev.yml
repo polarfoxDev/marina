@@ -28,10 +28,10 @@ services:
     volumes:
       - test-postgres-data:/var/lib/postgresql/data
     labels:
-      eu.polarnight.marina.enabled: "true"
-      eu.polarnight.marina.db: "postgres"
-      eu.polarnight.marina.instanceID: "local-backup"
-      eu.polarnight.marina.tags: "env:test,db:postgres"
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.db: "postgres"
+      dev.polarfox.marina.instanceID: "local-backup"
+      dev.polarfox.marina.tags: "env:test,db:postgres"
     networks:
       - test-net
 

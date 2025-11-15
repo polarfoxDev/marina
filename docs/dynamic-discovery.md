@@ -64,9 +64,9 @@ docker-compose up -d marina
 
 # Add a volume with backup labels
 docker volume create \
-  --label eu.polarnight.marina.enabled=true \
-  --label eu.polarnight.marina.schedule="*/5 * * * *" \
-  --label eu.polarnight.marina.instanceID=local-backup \
+  --label dev.polarfox.marina.enabled=true \
+  --label dev.polarfox.marina.schedule="*/5 * * * *" \
+  --label dev.polarfox.marina.instanceID=local-backup \
   test-volume
 
 # Watch Marina logs - should see "scheduled volume:test-volume"
@@ -75,9 +75,9 @@ docker-compose logs -f marina
 # Update the schedule
 docker volume rm test-volume
 docker volume create \
-  --label eu.polarnight.marina.enabled=true \
-  --label eu.polarnight.marina.schedule="*/10 * * * *" \
-  --label eu.polarnight.marina.instanceID=local-backup \
+  --label dev.polarfox.marina.enabled=true \
+  --label dev.polarfox.marina.schedule="*/10 * * * *" \
+  --label dev.polarfox.marina.instanceID=local-backup \
   test-volume
 
 # Marina will detect and reschedule automatically

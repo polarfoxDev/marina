@@ -154,11 +154,11 @@ jobs:
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }} \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            -t ghcr.io/polarfoxdev/marina:${{ steps.version.outputs.VERSION }} \
+            -t ghcr.io/polarfoxdev/marina:latest \
             $(printf 'polarfoxdev/marina@sha256:%s ' *)
 
       - name: Inspect images
         run: |
           docker buildx imagetools inspect polarfoxdev/marina:${{ steps.version.outputs.VERSION }}
-          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}
+          docker buildx imagetools inspect ghcr.io/polarfoxdev/marina:${{ steps.version.outputs.VERSION }}
