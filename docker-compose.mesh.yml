@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Example docker-compose setup demonstrating Marina mesh mode
 # This creates 3 Marina instances that can see each other's backup schedules
 

@@ -158,7 +158,6 @@ func createSchema(db *sql.DB) error {
 
 	CREATE TABLE IF NOT EXISTS backup_schedules (
 		instance_id TEXT NOT NULL PRIMARY KEY,
-		node_name TEXT DEFAULT '',
 		schedule_cron TEXT NOT NULL,
 		next_run_at TIMESTAMP,
 		retention_keep_daily INTEGER DEFAULT 0,

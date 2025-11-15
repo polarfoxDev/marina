@@ -12,11 +12,10 @@ React-based web interface for monitoring Marina backup status.
 ## Mesh Mode
 
 When Marina is configured with mesh networking (multiple instances connected together), the schedules view automatically:
+
 - Groups schedules by node name for easy organization
 - Shows a badge indicating how many nodes are in the mesh
 - Fetches data from all configured peer nodes
-
-See [docs/MESH.md](../docs/MESH.md) for configuration details.
 
 ## Development
 
@@ -41,7 +40,7 @@ pnpm run build
 
 ## Project Structure
 
-```
+```text
 src/
 ├── components/          # React components
 │   ├── SchedulesView.tsx
