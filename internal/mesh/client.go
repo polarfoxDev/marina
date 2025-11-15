@@ -1,6 +1,7 @@
 package mesh
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,13 +17,15 @@ type Client struct {
 	peers      []string
 	httpClient *http.Client
 	timeout    time.Duration
-	authToken  string // Authentication token for mesh peers
+	authToken  string // Authentication token for mesh peers (if using tokens)
+	password   string // Password for mesh authentication
 }
 
-// NewClient creates a new mesh client with the specified peer URLs
-func NewClient(peers []string, authToken string) *Client {
+// NewClient creates a new mesh client with the specified peer URLs and auth password
+func NewClient(peers []string, password string) *Client {
 	return &Client{
-		peers: peers,
+		peers:    peers,
+		password: password,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -275,9 +278,57 @@ func (c *Client) FetchJobLogs(ctx context.Context, peerURL string, jobID int, li
 	return result
 }
 
-// addAuthHeader adds authentication header to the request if token is set
+// addAuthHeader adds authentication header to the request
+// If we have a cached token, use it. Otherwise, authenticate with password.
 func (c *Client) addAuthHeader(req *http.Request) {
+	// If we already have a token, use it
 	if c.authToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.authToken)
+		return
 	}
+	
+	// If we have a password, try to get a token from the peer
+	if c.password != "" {
+		// Extract the base URL from the request
+		baseURL := req.URL.Scheme + "://" + req.URL.Host
+		
+		// Try to get a token for this peer
+		token := c.getTokenForPeer(baseURL)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+	}
+}
+
+// getTokenForPeer authenticates with a peer and returns a token
+func (c *Client) getTokenForPeer(peerURL string) string {
+	// Try to login and get a token
+	loginURL := peerURL + "/api/auth/login"
+	
+	loginData := map[string]string{"password": c.password}
+	jsonData, err := json.Marshal(loginData)
+	if err != nil {
+		return ""
+	}
+	
+	resp, err := c.httpClient.Post(loginURL, "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ""
+	}
+	
+	// Cache the token for future requests
+	c.authToken = result.Token
+	return result.Token
 }

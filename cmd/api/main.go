@@ -72,20 +72,11 @@ func main() {
 		log.Printf("Authentication enabled")
 	}
 
-	// Generate a token for mesh client authentication
-	var meshAuthToken string
-	if authHandler.IsEnabled() {
-		token, err := authHandler.GenerateToken()
-		if err != nil {
-			log.Fatalf("generate mesh auth token: %v", err)
-		}
-		meshAuthToken = token
-	}
-
 	// Initialize mesh client if peers are configured
+	// Pass the password so mesh client can authenticate with peers
 	var meshClient *mesh.Client
 	if cfg.Mesh != nil && len(cfg.Mesh.Peers) > 0 {
-		meshClient = mesh.NewClient(cfg.Mesh.Peers, meshAuthToken)
+		meshClient = mesh.NewClient(cfg.Mesh.Peers, authPassword)
 		log.Printf("Mesh mode enabled with %d peer(s)", len(cfg.Mesh.Peers))
 	}
 

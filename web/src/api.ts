@@ -20,6 +20,12 @@ async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
 
   if (!response.ok) {
+    // If we get 401 Unauthorized, reload the page to trigger re-authentication
+    if (response.status === 401) {
+      window.location.reload();
+      throw new ApiError(response.status, "Authentication required");
+    }
+    
     const text = await response.text();
     throw new ApiError(response.status, text || response.statusText);
   }
