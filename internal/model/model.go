@@ -91,6 +91,8 @@ type JobStatus struct {
 	ID                    int            `json:"id"`                    // global unique ID
 	IID                   int            `json:"iid"`                   // instance unique ID
 	InstanceID            InstanceID     `json:"instanceId"`            // destination instance
+	NodeName              string         `json:"nodeName,omitempty"`    // name of the node (for mesh mode)
+	NodeURL               string         `json:"nodeUrl,omitempty"`     // URL of the node (for mesh mode, used to fetch logs)
 	IsActive              bool           `json:"isActive"`              // whether the instance is active (= in the config)
 	Status                JobStatusState `json:"status"`                // current status
 	LastStartedAt         *time.Time     `json:"lastStartedAt"`         // when last backup started (nil if never run)

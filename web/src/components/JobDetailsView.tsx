@@ -51,13 +51,14 @@ export function JobDetailsView() {
 
     try {
       const numericJobId = parseInt(jobId, 10);
-      const logsData = await api.getJobLogs(numericJobId, 5000);
+      // Pass nodeUrl if the job is from a remote node
+      const logsData = await api.getJobLogs(numericJobId, 5000, job?.nodeUrl);
       setLogs(logsData);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load logs");
     }
-  }, [jobId]);
+  }, [jobId, job]);
 
   const applyFilters = useCallback(() => {
     let filtered = [...logs];

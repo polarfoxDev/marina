@@ -70,6 +70,17 @@ export function JobStatusesView() {
         <p className="mt-2 text-gray-600">
           History of backup jobs for this instance
         </p>
+        {jobs.length > 0 && (() => {
+          const nodes = [...new Set(jobs.map(j => j.nodeName).filter(Boolean))];
+          if (nodes.length > 1) {
+            return (
+              <p className="mt-1 text-sm text-blue-600">
+                Showing jobs from {nodes.length} node(s): {nodes.join(", ")}
+              </p>
+            );
+          }
+          return null;
+        })()}
       </div>
 
       {jobs.length === 0 ? (
@@ -85,6 +96,9 @@ export function JobStatusesView() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Job #
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Node
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
@@ -108,6 +122,16 @@ export function JobStatusesView() {
                 <tr key={job.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     #{job.iid}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {job.nodeName && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                        {job.nodeName}
+                      </span>
+                    )}
+                    {!job.nodeName && (
+                      <span className="text-gray-400">Local</span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span

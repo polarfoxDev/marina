@@ -210,3 +210,62 @@ result.NodeName = peerURL
 
 return result
 }
+
+// PeerLogs represents logs from a specific peer node
+type PeerLogs struct {
+NodeURL string
+JobID   int
+Logs    []LogEntry
+Error   error
+}
+
+// LogEntry represents a log entry (mirroring the logging package structure)
+type LogEntry struct {
+ID           int64  `json:"id"`
+Timestamp    string `json:"timestamp"`
+Level        string `json:"level"`
+Message      string `json:"message"`
+InstanceID   string `json:"instanceId"`
+TargetID     string `json:"targetId"`
+JobStatusID  int    `json:"jobStatusId"`
+JobStatusIID int    `json:"jobStatusIid"`
+}
+
+// FetchJobLogs fetches logs for a specific job from a peer node
+func (c *Client) FetchJobLogs(ctx context.Context, peerURL string, jobID int, limit int) PeerLogs {
+result := PeerLogs{
+NodeURL: peerURL,
+JobID:   jobID,
+}
+
+reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
+defer cancel()
+
+url := fmt.Sprintf("%s/api/logs/job/%d?limit=%d", peerURL, jobID, limit)
+req, err := http.NewRequestWithContext(reqCtx, "GET", url, nil)
+if err != nil {
+result.Error = fmt.Errorf("create request: %w", err)
+return result
+}
+
+resp, err := c.httpClient.Do(req)
+if err != nil {
+result.Error = fmt.Errorf("fetch logs: %w", err)
+return result
+}
+defer resp.Body.Close()
+
+if resp.StatusCode != http.StatusOK {
+result.Error = fmt.Errorf("unexpected status: %d", resp.StatusCode)
+return result
+}
+
+var logs []LogEntry
+if err := json.NewDecoder(resp.Body).Decode(&logs); err != nil {
+result.Error = fmt.Errorf("decode response: %w", err)
+return result
+}
+
+result.Logs = logs
+return result
+}

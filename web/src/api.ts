@@ -42,9 +42,11 @@ export const api = {
     );
   },
 
-  async getJobLogs(jobID: number, limit = 1000): Promise<LogEntry[]> {
-    return fetchJson<LogEntry[]>(
-      `${API_BASE}/logs/job/${jobID}?limit=${limit}`
-    );
+  async getJobLogs(jobID: number, limit = 1000, nodeUrl?: string): Promise<LogEntry[]> {
+    let url = `${API_BASE}/logs/job/${jobID}?limit=${limit}`;
+    if (nodeUrl) {
+      url += `&nodeUrl=${encodeURIComponent(nodeUrl)}`;
+    }
+    return fetchJson<LogEntry[]>(url);
   },
 };

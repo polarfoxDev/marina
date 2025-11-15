@@ -135,7 +135,7 @@ func main() {
 		})
 
 		r.Route("/logs", func(r chi.Router) {
-			r.Get("/job/{id}", handleGetJobLogs(logger))
+			r.Get("/job/{id}", handleGetJobLogs(logger, meshClient))
 		})
 	})
 
@@ -282,14 +282,34 @@ func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName strin
 
 		ctx := context.Background()
 		
-		// Note: For job statuses, we typically only want to show data from the local node
-		// because job statuses are node-specific. However, if mesh mode is enabled,
-		// the user might want to see statuses from other nodes too.
-		// For now, we'll keep it local-only since job details page shows logs which are local.
+		// Fetch local statuses
 		statuses, err := db.GetJobStatus(ctx, instanceID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get statuses: %v", err), http.StatusInternalServerError)
 			return
+		}
+
+		// Add node information to local statuses
+		for i := range statuses {
+			statuses[i].NodeName = nodeName
+			statuses[i].NodeURL = "" // Empty for local node
+		}
+
+		// Fetch statuses from mesh peers if configured
+		if meshClient != nil {
+			peerResults := meshClient.FetchJobStatusFromPeers(ctx, instanceID)
+			for _, peerResult := range peerResults {
+				if peerResult.Error != nil {
+					log.Printf("Warning: failed to fetch job statuses from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					continue
+				}
+				// Add peer statuses with their node information
+				for _, peerStatus := range peerResult.Statuses {
+					peerStatus.NodeName = peerResult.NodeName
+					peerStatus.NodeURL = peerResult.NodeURL
+					statuses = append(statuses, peerStatus)
+				}
+			}
 		}
 
 		respondJSON(w, statuses)
@@ -297,7 +317,8 @@ func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName strin
 }
 
 // GET /api/logs/job/{id} - Get logs for a specific job status ID
-func handleGetJobLogs(logger *logging.Logger) http.HandlerFunc {
+// Supports fetching logs from remote nodes via query parameter nodeUrl
+func handleGetJobLogs(logger *logging.Logger, meshClient *mesh.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		if idStr == "" {
@@ -320,6 +341,21 @@ func handleGetJobLogs(logger *logging.Logger) http.HandlerFunc {
 			}
 		}
 
+		// Check if this is a request for remote node logs
+		nodeURL := r.URL.Query().Get("nodeUrl")
+		if nodeURL != "" && meshClient != nil {
+			// Fetch logs from remote node
+			ctx := context.Background()
+			peerLogs := meshClient.FetchJobLogs(ctx, nodeURL, jobID, limit)
+			if peerLogs.Error != nil {
+				http.Error(w, fmt.Sprintf("Failed to fetch logs from peer: %v", peerLogs.Error), http.StatusInternalServerError)
+				return
+			}
+			respondJSON(w, peerLogs.Logs)
+			return
+		}
+
+		// Fetch local logs
 		logs, err := logger.QueryByJobID(jobID, limit)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
