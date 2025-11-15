@@ -76,16 +76,28 @@ func (c *Client) FetchAllSchedules(ctx context.Context) []PeerSchedules {
 		go func(idx int, peerURL string) {
 			defer wg.Done()
 			
-			// Check if peer is in backoff period
+			// Check if peer is in backoff period or has too many failures
 			c.failuresMu.RLock()
 			backoffUntil, inBackoff := c.backoffUntil[peerURL]
+			failCount := c.failures[peerURL]
 			c.failuresMu.RUnlock()
 			
+			// Skip if already in backoff
 			if inBackoff && time.Now().Before(backoffUntil) {
 				// Skip this peer - it's in backoff
 				results[idx] = PeerSchedules{
 					NodeURL: peerURL,
 					Error:   fmt.Errorf("peer in backoff until %s", backoffUntil.Format("15:04:05")),
+				}
+				return
+			}
+			
+			// Also skip if we've hit 3 failures but backoff hasn't been set yet
+			// This prevents concurrent requests from all timing out before backoff is applied
+			if failCount >= 3 {
+				results[idx] = PeerSchedules{
+					NodeURL: peerURL,
+					Error:   fmt.Errorf("peer has %d failures, circuit breaker active", failCount),
 				}
 				return
 			}
@@ -238,16 +250,29 @@ func (c *Client) FetchJobStatusFromPeers(ctx context.Context, instanceID string)
 		go func(idx int, peerURL string) {
 			defer wg.Done()
 			
-			// Check if peer is in backoff period
+			// Check if peer is in backoff period or has too many failures
 			c.failuresMu.RLock()
 			backoffUntil, inBackoff := c.backoffUntil[peerURL]
+			failCount := c.failures[peerURL]
 			c.failuresMu.RUnlock()
 			
+			// Skip if already in backoff
 			if inBackoff && time.Now().Before(backoffUntil) {
 				results[idx] = PeerJobStatuses{
 					NodeURL:    peerURL,
 					InstanceID: instanceID,
 					Error:      fmt.Errorf("peer in backoff until %s", backoffUntil.Format("15:04:05")),
+				}
+				return
+			}
+			
+			// Also skip if we've hit 3 failures but backoff hasn't been set yet
+			// This prevents concurrent requests from all timing out before backoff is applied
+			if failCount >= 3 {
+				results[idx] = PeerJobStatuses{
+					NodeURL:    peerURL,
+					InstanceID: instanceID,
+					Error:      fmt.Errorf("peer has %d failures, circuit breaker active", failCount),
 				}
 				return
 			}
