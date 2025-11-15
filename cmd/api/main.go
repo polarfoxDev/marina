@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -59,7 +60,13 @@ func main() {
 	// Allow additional origins from environment variable (comma-separated)
 	// Example: CORS_ORIGINS=https://marina.example.com,https://backup.example.com
 	if extraOrigins := os.Getenv("CORS_ORIGINS"); extraOrigins != "" {
-		corsOrigins = append(corsOrigins, strings.Split(extraOrigins, ",")...)
+		for _, origin := range strings.Split(extraOrigins, ",") {
+			origin = strings.TrimSpace(origin)
+			// Validate that it's a valid URL
+			if _, err := url.Parse(origin); err == nil && origin != "" {
+				corsOrigins = append(corsOrigins, origin)
+			}
+		}
 	}
 
 	r.Use(cors.Handler(cors.Options{
