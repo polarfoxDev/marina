@@ -279,10 +279,18 @@ func (d *DB) AddOrUpdateSchedules(ctx context.Context, schedules map[model.Insta
 
 func (d *DB) GetAllSchedules(ctx context.Context) ([]*model.InstanceBackupScheduleView, error) {
 	query := `
-	SELECT instance_id, schedule_cron, next_run_at,
-		retention_keep_daily, retention_keep_weekly, retention_keep_monthly, targets,
-		created_at, updated_at
-	FROM backup_schedules
+	SELECT 
+		bs.instance_id, bs.schedule_cron, bs.next_run_at,
+		bs.retention_keep_daily, bs.retention_keep_weekly, bs.retention_keep_monthly, bs.targets,
+		bs.created_at, bs.updated_at,
+		js.status, js.last_completed_at
+	FROM backup_schedules bs
+	LEFT JOIN (
+		SELECT instance_id, status, last_completed_at,
+			ROW_NUMBER() OVER (PARTITION BY instance_id ORDER BY iid DESC) as rn
+		FROM job_status
+	) js ON bs.instance_id = js.instance_id AND js.rn = 1
+	ORDER BY bs.instance_id
 	`
 
 	rows, err := d.db.QueryContext(ctx, query)
@@ -296,6 +304,9 @@ func (d *DB) GetAllSchedules(ctx context.Context) ([]*model.InstanceBackupSchedu
 		schedule := &model.InstanceBackupScheduleView{}
 		var retention model.Retention
 		var targetsCSV string
+		var latestStatus sql.NullString
+		var latestCompletedAt sql.NullTime
+
 		err := rows.Scan(
 			&schedule.InstanceID,
 			&schedule.ScheduleCron,
@@ -306,10 +317,13 @@ func (d *DB) GetAllSchedules(ctx context.Context) ([]*model.InstanceBackupSchedu
 			&targetsCSV,
 			&schedule.CreatedAt,
 			&schedule.UpdatedAt,
+			&latestStatus,
+			&latestCompletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan backup schedule: %w", err)
 		}
+
 		if targetsCSV == "" {
 			schedule.TargetIDs = []string{}
 		} else {
@@ -323,6 +337,16 @@ func (d *DB) GetAllSchedules(ctx context.Context) ([]*model.InstanceBackupSchedu
 			}
 		}
 		schedule.Retention = retention
+
+		// Set latest job status if available
+		if latestStatus.Valid {
+			status := model.JobStatusState(latestStatus.String)
+			schedule.LatestJobStatus = &status
+		}
+		if latestCompletedAt.Valid {
+			schedule.LatestJobCompletedAt = &latestCompletedAt.Time
+		}
+
 		schedules = append(schedules, schedule)
 	}
 

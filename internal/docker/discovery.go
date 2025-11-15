@@ -73,7 +73,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 		}
 
 		t := model.BackupTarget{
-			ID:           "volume:" + v.Name,
+			ID:           "vol:" + v.Name,
 			Name:         v.Name,
 			Type:         model.TargetVolume,
 			InstanceID:   model.InstanceID(lbl[labels.LInstanceID]),

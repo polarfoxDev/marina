@@ -1,0 +1,57 @@
+export type JobStatusState =
+  | "in_progress"
+  | "success"
+  | "partial_success"
+  | "failed"
+  | "scheduled"
+  | "aborted";
+
+export interface Retention {
+  keepDaily: number;
+  keepWeekly: number;
+  keepMonthly: number;
+}
+
+export interface InstanceBackupSchedule {
+  instanceId: string;
+  scheduleCron: string;
+  nextRunAt: string | null;
+  targetIds: string[];
+  retention: Retention;
+  createdAt: string;
+  updatedAt: string;
+  latestJobStatus?: JobStatusState;
+  latestJobCompletedAt?: string | null;
+}
+
+export interface JobStatus {
+  id: number;
+  iid: number;
+  instanceId: string;
+  isActive: boolean;
+  status: JobStatusState;
+  lastStartedAt: string | null;
+  lastCompletedAt: string | null;
+  lastTargetsSuccessful: number;
+  lastTargetsTotal: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type LogLevel = "INFO" | "WARN" | "ERROR" | "DEBUG";
+
+export interface LogEntry {
+  id: number;
+  timestamp: string;
+  level: LogLevel;
+  message: string;
+  instanceId: string | null;
+  targetId: string | null;
+  jobStatusId: number | null;
+  jobStatusIid: number | null;
+}
+
+export interface HealthResponse {
+  status: string;
+  time: string;
+}

@@ -46,19 +46,21 @@ type InstanceBackupSchedule struct {
 }
 
 type InstanceBackupScheduleView struct {
-	InstanceID   InstanceID
-	ScheduleCron string     // cron schedule from config
-	NextRunAt    *time.Time // next scheduled run (nil if not scheduled)
-	TargetIDs    []string
-	Retention    Retention // Common retention policy (from first target or config default)
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	InstanceID           InstanceID      `json:"instanceId"`
+	ScheduleCron         string          `json:"scheduleCron"` // cron schedule from config
+	NextRunAt            *time.Time      `json:"nextRunAt"`    // next scheduled run (nil if not scheduled)
+	TargetIDs            []string        `json:"targetIds"`
+	Retention            Retention       `json:"retention"` // Common retention policy (from first target or config default)
+	CreatedAt            time.Time       `json:"createdAt"`
+	UpdatedAt            time.Time       `json:"updatedAt"`
+	LatestJobStatus      *JobStatusState `json:"latestJobStatus,omitempty"`      // status of most recent job
+	LatestJobCompletedAt *time.Time      `json:"latestJobCompletedAt,omitempty"` // completion time of most recent job
 }
 
 type Retention struct {
-	KeepDaily   int
-	KeepWeekly  int
-	KeepMonthly int
+	KeepDaily   int `json:"keepDaily"`
+	KeepWeekly  int `json:"keepWeekly"`
+	KeepMonthly int `json:"keepMonthly"`
 }
 
 type JobState string
@@ -85,15 +87,15 @@ const (
 // JobStatus represents the persistent status of a backup target
 // Used for API/dashboard display
 type JobStatus struct {
-	ID                    int            // global unique ID
-	IID                   int            // instance unique ID
-	InstanceID            InstanceID     // destination instance
-	IsActive              bool           // whether the instance is active (= in the config)
-	Status                JobStatusState // current status
-	LastStartedAt         *time.Time     // when last backup started (nil if never run)
-	LastCompletedAt       *time.Time     // when last backup completed (nil if never completed)
-	LastTargetsSuccessful int            // number of successfully backed up targets in last run
-	LastTargetsTotal      int            // total number of targets in last run
-	CreatedAt             time.Time      // when this job was first discovered
-	UpdatedAt             time.Time      // last status update
+	ID                    int            `json:"id"`                    // global unique ID
+	IID                   int            `json:"iid"`                   // instance unique ID
+	InstanceID            InstanceID     `json:"instanceId"`            // destination instance
+	IsActive              bool           `json:"isActive"`              // whether the instance is active (= in the config)
+	Status                JobStatusState `json:"status"`                // current status
+	LastStartedAt         *time.Time     `json:"lastStartedAt"`         // when last backup started (nil if never run)
+	LastCompletedAt       *time.Time     `json:"lastCompletedAt"`       // when last backup completed (nil if never completed)
+	LastTargetsSuccessful int            `json:"lastTargetsSuccessful"` // number of successfully backed up targets in last run
+	LastTargetsTotal      int            `json:"lastTargetsTotal"`      // total number of targets in last run
+	CreatedAt             time.Time      `json:"createdAt"`             // when this job was first discovered
+	UpdatedAt             time.Time      `json:"updatedAt"`             // last status update
 }

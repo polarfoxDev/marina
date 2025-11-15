@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+.github
+
+# Documentation
+*.md
+docs/
+
+# Development files
+.vscode
+.idea
+*.swp
+*.swo
+
+# Test files
+tests/
+*_test.go
+
+# Build artifacts
+manager
+api
+web/dist
+web/node_modules
+web/.pnpm-store
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local config
+config.yml
+*.local
+
+# CI/CD
+.gitlab-ci.yml
+.drone.yml
