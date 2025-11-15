@@ -17,8 +17,11 @@ type Client struct {
 	peers      []string
 	httpClient *http.Client
 	timeout    time.Duration
-	authToken  string // Authentication token for mesh peers (if using tokens)
 	password   string // Password for mesh authentication
+	
+	// Per-peer token cache with mutex for thread-safe access
+	tokensMu sync.RWMutex
+	tokens   map[string]string // peerURL -> token
 }
 
 // NewClient creates a new mesh client with the specified peer URLs and auth password
@@ -26,6 +29,7 @@ func NewClient(peers []string, password string) *Client {
 	return &Client{
 		peers:    peers,
 		password: password,
+		tokens:   make(map[string]string),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -86,6 +90,35 @@ func (c *Client) fetchSchedulesFromPeer(ctx context.Context, peerURL string) Pee
 		return result
 	}
 	defer resp.Body.Close()
+
+	// If we get 401, the token might be expired - clear it and retry once
+	if resp.StatusCode == http.StatusUnauthorized && c.password != "" {
+		resp.Body.Close() // Close the first response
+		
+		// Clear the cached token for this peer
+		baseURL := req.URL.Scheme + "://" + req.URL.Host
+		c.tokensMu.Lock()
+		delete(c.tokens, baseURL)
+		c.tokensMu.Unlock()
+		
+		// Create a new request with fresh context
+		reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
+		defer cancel2()
+		
+		req2, err := http.NewRequestWithContext(reqCtx2, "GET", url, nil)
+		if err != nil {
+			result.Error = fmt.Errorf("create retry request: %w", err)
+			return result
+		}
+		c.addAuthHeader(req2) // This will get a fresh token
+		
+		resp, err = c.httpClient.Do(req2)
+		if err != nil {
+			result.Error = fmt.Errorf("fetch schedules (retry): %w", err)
+			return result
+		}
+		defer resp.Body.Close()
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		result.Error = fmt.Errorf("unexpected status: %d", resp.StatusCode)
@@ -196,6 +229,33 @@ func (c *Client) fetchJobStatusFromPeer(ctx context.Context, peerURL, instanceID
 	}
 	defer resp.Body.Close()
 
+	// If we get 401, the token might be expired - clear it and retry once
+	if resp.StatusCode == http.StatusUnauthorized && c.password != "" {
+		resp.Body.Close()
+		
+		baseURL := req.URL.Scheme + "://" + req.URL.Host
+		c.tokensMu.Lock()
+		delete(c.tokens, baseURL)
+		c.tokensMu.Unlock()
+		
+		reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
+		defer cancel2()
+		
+		req2, err := http.NewRequestWithContext(reqCtx2, "GET", url, nil)
+		if err != nil {
+			result.Error = fmt.Errorf("create retry request: %w", err)
+			return result
+		}
+		c.addAuthHeader(req2)
+		
+		resp, err = c.httpClient.Do(req2)
+		if err != nil {
+			result.Error = fmt.Errorf("fetch status (retry): %w", err)
+			return result
+		}
+		defer resp.Body.Close()
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		result.Error = fmt.Errorf("unexpected status: %d", resp.StatusCode)
 		return result
@@ -263,6 +323,33 @@ func (c *Client) FetchJobLogs(ctx context.Context, peerURL string, jobID int, li
 	}
 	defer resp.Body.Close()
 
+	// If we get 401, the token might be expired - clear it and retry once
+	if resp.StatusCode == http.StatusUnauthorized && c.password != "" {
+		resp.Body.Close()
+		
+		baseURL := req.URL.Scheme + "://" + req.URL.Host
+		c.tokensMu.Lock()
+		delete(c.tokens, baseURL)
+		c.tokensMu.Unlock()
+		
+		reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
+		defer cancel2()
+		
+		req2, err := http.NewRequestWithContext(reqCtx2, "GET", url, nil)
+		if err != nil {
+			result.Error = fmt.Errorf("create retry request: %w", err)
+			return result
+		}
+		c.addAuthHeader(req2)
+		
+		resp, err = c.httpClient.Do(req2)
+		if err != nil {
+			result.Error = fmt.Errorf("fetch logs (retry): %w", err)
+			return result
+		}
+		defer resp.Body.Close()
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		result.Error = fmt.Errorf("unexpected status: %d", resp.StatusCode)
 		return result
@@ -279,30 +366,53 @@ func (c *Client) FetchJobLogs(ctx context.Context, peerURL string, jobID int, li
 }
 
 // addAuthHeader adds authentication header to the request
-// If we have a cached token, use it. Otherwise, authenticate with password.
 func (c *Client) addAuthHeader(req *http.Request) {
-	// If we already have a token, use it
-	if c.authToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	if c.password == "" {
+		return // No auth configured
+	}
+	
+	// Extract the base URL from the request
+	baseURL := req.URL.Scheme + "://" + req.URL.Host
+	
+	// Check if we have a cached token for this peer
+	c.tokensMu.RLock()
+	token, exists := c.tokens[baseURL]
+	c.tokensMu.RUnlock()
+	
+	if exists && token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 		return
 	}
 	
-	// If we have a password, try to get a token from the peer
-	if c.password != "" {
-		// Extract the base URL from the request
-		baseURL := req.URL.Scheme + "://" + req.URL.Host
-		
-		// Try to get a token for this peer
-		token := c.getTokenForPeer(baseURL)
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
+	// Need to get a token - do this outside the request context to avoid timeout
+	// This is done synchronously but only once per peer (or when token expires)
+	token = c.getTokenForPeer(baseURL)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 }
 
 // getTokenForPeer authenticates with a peer and returns a token
+// This method handles its own synchronization to prevent multiple simultaneous auth attempts
 func (c *Client) getTokenForPeer(peerURL string) string {
-	// Try to login and get a token
+	// Double-check if another goroutine already got the token
+	c.tokensMu.RLock()
+	if token, exists := c.tokens[peerURL]; exists && token != "" {
+		c.tokensMu.RUnlock()
+		return token
+	}
+	c.tokensMu.RUnlock()
+	
+	// Acquire write lock to authenticate
+	c.tokensMu.Lock()
+	defer c.tokensMu.Unlock()
+	
+	// Check again in case another goroutine got it while we waited for the lock
+	if token, exists := c.tokens[peerURL]; exists && token != "" {
+		return token
+	}
+	
+	// Try to login and get a token with a separate timeout
 	loginURL := peerURL + "/api/auth/login"
 	
 	loginData := map[string]string{"password": c.password}
@@ -311,7 +421,17 @@ func (c *Client) getTokenForPeer(peerURL string) string {
 		return ""
 	}
 	
-	resp, err := c.httpClient.Post(loginURL, "application/json", bytes.NewReader(jsonData))
+	// Create a separate context with timeout for login (not tied to request context)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	loginReq, err := http.NewRequestWithContext(ctx, "POST", loginURL, bytes.NewReader(jsonData))
+	if err != nil {
+		return ""
+	}
+	loginReq.Header.Set("Content-Type", "application/json")
+	
+	resp, err := c.httpClient.Do(loginReq)
 	if err != nil {
 		return ""
 	}
@@ -328,7 +448,52 @@ func (c *Client) getTokenForPeer(peerURL string) string {
 		return ""
 	}
 	
-	// Cache the token for future requests
-	c.authToken = result.Token
+	// Cache the token for this specific peer
+	c.tokens[peerURL] = result.Token
 	return result.Token
+}
+
+// doRequestWithRetry performs an HTTP request and retries once on 401 with fresh auth
+func (c *Client) doRequestWithRetry(ctx context.Context, method, url string) (*http.Response, error) {
+reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
+defer cancel()
+
+req, err := http.NewRequestWithContext(reqCtx, method, url, nil)
+if err != nil {
+return nil, fmt.Errorf("create request: %w", err)
+}
+c.addAuthHeader(req)
+
+resp, err := c.httpClient.Do(req)
+if err != nil {
+return nil, err
+}
+
+// If we get 401 and have auth configured, retry once with fresh token
+if resp.StatusCode == http.StatusUnauthorized && c.password != "" {
+resp.Body.Close()
+
+// Clear the cached token for this peer
+baseURL := req.URL.Scheme + "://" + req.URL.Host
+c.tokensMu.Lock()
+delete(c.tokens, baseURL)
+c.tokensMu.Unlock()
+
+// Retry with fresh context
+reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
+defer cancel2()
+
+req2, err := http.NewRequestWithContext(reqCtx2, method, url, nil)
+if err != nil {
+return nil, fmt.Errorf("create retry request: %w", err)
+}
+c.addAuthHeader(req2)
+
+resp, err = c.httpClient.Do(req2)
+if err != nil {
+return nil, fmt.Errorf("retry: %w", err)
+}
+}
+
+return resp, nil
 }
