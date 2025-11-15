@@ -30,14 +30,14 @@ type Logger struct {
 
 // LogEntry represents a single log entry
 type LogEntry struct {
-	ID           int64
-	Timestamp    time.Time
-	Level        LogLevel
-	Message      string
-	InstanceID   string // backup instance ID (e.g., "hetzner-s3")
-	TargetID     string // specific target ID (e.g., "volume:mydata", "container:abc123")
-	JobStatusID  int    // job_status.id from the status database
-	JobStatusIID int    // job_status.iid from the status database
+	ID           int64     `json:"id"`
+	Timestamp    time.Time `json:"timestamp"`
+	Level        LogLevel  `json:"level"`
+	Message      string    `json:"message"`
+	InstanceID   string    `json:"instanceId"`   // backup instance ID (e.g., "hetzner-s3")
+	TargetID     string    `json:"targetId"`     // specific target ID (e.g., "volume:mydata", "container:abc123")
+	JobStatusID  int       `json:"jobStatusId"`  // job_status.id from the status database
+	JobStatusIID int       `json:"jobStatusIid"` // job_status.iid from the status database
 }
 
 // New creates a new Logger using an existing database connection.

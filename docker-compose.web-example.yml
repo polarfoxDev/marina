@@ -1,0 +1,81 @@
+# Marina with Web Interface - Complete Example
+
+This example shows a complete Marina setup with:
+- Web interface at http://localhost:8080
+- PostgreSQL database backup
+- Volume backup for an app
+
+version: '3.8'
+
+services:
+  marina:
+    build: .
+    container_name: marina-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Docker socket for container/volume discovery
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Config file
+      - ./config.yml:/app/config.yml:ro
+      # Database and staging directory
+      - marina-data:/var/lib/marina
+      - marina-staging:/backup
+    environment:
+      CONFIG_FILE: /app/config.yml
+      API_PORT: 8080
+    networks:
+      - app-net
+
+  # Example: PostgreSQL with automatic backups
+  postgres:
+    image: postgres:16-alpine
+    container_name: example-postgres
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    labels:
+      # Enable Marina backups for this database
+      eu.polarnight.marina.enabled: "true"
+      eu.polarnight.marina.db: "postgres"
+      eu.polarnight.marina.instanceID: "prod-backup"
+      eu.polarnight.marina.retention: "7d:4w:12m"
+      eu.polarnight.marina.tags: "env:prod,db:postgres"
+    networks:
+      - app-net
+
+  # Example: Application with volume backup
+  app:
+    image: nginx:alpine
+    container_name: example-app
+    volumes:
+      - app-uploads:/usr/share/nginx/html/uploads
+    networks:
+      - app-net
+
+volumes:
+  marina-data:
+    driver: local
+  marina-staging:
+    driver: local
+  postgres-data:
+    driver: local
+  app-uploads:
+    driver: local
+    labels:
+      # Enable Marina backups for this volume
+      eu.polarnight.marina.enabled: "true"
+      eu.polarnight.marina.instanceID: "prod-backup"
+      eu.polarnight.marina.retention: "7d:4w:12m"
+      eu.polarnight.marina.paths: "/"
+      eu.polarnight.marina.stopAttached: "false"
+      eu.polarnight.marina.tags: "env:prod,type:uploads"
+
+networks:
+  app-net:
+    driver: bridge
