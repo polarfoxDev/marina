@@ -12,7 +12,12 @@ function App() {
 
   async function checkAuth() {
     try {
-      const response = await fetch("/api/auth/check");
+      const token = localStorage.getItem("marina_auth_token");
+      const headers: HeadersInit = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch("/api/auth/check", { headers });
       if (response.ok) {
         const data = await response.json();
         setAuthRequired(data.authRequired);
