@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/polarfoxDev/marina/internal/model"
@@ -124,7 +125,6 @@ func createSchema(db *sql.DB) error {
 		last_targets_total INTEGER DEFAULT 0,
 		last_started_at TIMESTAMP,
 		last_completed_at TIMESTAMP,
-		next_run_at TIMESTAMP,
 		created_at TIMESTAMP NOT NULL,
 		updated_at TIMESTAMP NOT NULL
 	);
@@ -151,6 +151,20 @@ func createSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
 	CREATE INDEX IF NOT EXISTS idx_logs_job_status_id ON logs(job_status_id);
 	CREATE INDEX IF NOT EXISTS idx_logs_job_status_iid ON logs(job_status_iid);
+
+	CREATE TABLE IF NOT EXISTS backup_schedules (
+		instance_id TEXT NOT NULL PRIMARY KEY,
+		schedule_cron TEXT NOT NULL,
+		next_run_at TIMESTAMP,
+		retention_keep_daily INTEGER DEFAULT 0,
+		retention_keep_weekly INTEGER DEFAULT 0,
+		retention_keep_monthly INTEGER DEFAULT 0,
+		targets TEXT,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_backup_schedules_instance_id ON backup_schedules(instance_id);
 	`
 
 	_, err := db.Exec(schema)
@@ -171,34 +185,174 @@ func (d *DB) GetDB() *sql.DB {
 	return d.db
 }
 
-func (d *DB) ScheduleNewJob(ctx context.Context, instanceID string) (int, error) {
+func (d *DB) UpdateNextRunTime(ctx context.Context, instanceID string, nextRunTime *time.Time) error {
+	query := `
+		UPDATE backup_schedules
+		SET next_run_at = ?, updated_at = ?
+		WHERE instance_id = ?
+	`
+
+	_, err := d.db.ExecContext(ctx, query, nextRunTime, time.Now(), instanceID)
+	if err != nil {
+		return fmt.Errorf("failed to update next run time for instance %s: %w", instanceID, err)
+	}
+
+	return nil
+}
+
+func (d *DB) AddOrUpdateSchedules(ctx context.Context, schedules map[model.InstanceID]model.InstanceBackupSchedule) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete schedules not in the provided map
+	if len(schedules) > 0 {
+		deleteQuery := `DELETE FROM backup_schedules WHERE instance_id NOT IN (` + placeholders(len(schedules)) + `)`
+		args := make([]any, 0, len(schedules))
+		for instanceID := range schedules {
+			args = append(args, instanceID)
+		}
+		_, err = tx.ExecContext(ctx, deleteQuery, args...)
+		if err != nil {
+			return fmt.Errorf("failed to delete old schedules: %w", err)
+		}
+	} else {
+		// If no schedules provided, delete all
+		_, err = tx.ExecContext(ctx, `DELETE FROM backup_schedules`)
+		if err != nil {
+			return fmt.Errorf("failed to delete all schedules: %w", err)
+		}
+	}
+
+	// Upsert provided schedules
+	query := `
+	INSERT INTO backup_schedules (
+		instance_id, schedule_cron,
+		retention_keep_daily, retention_keep_weekly, retention_keep_monthly,
+		targets,
+		created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(instance_id) DO UPDATE SET
+		schedule_cron = excluded.schedule_cron,
+		retention_keep_daily = excluded.retention_keep_daily,
+		retention_keep_weekly = excluded.retention_keep_weekly,
+		retention_keep_monthly = excluded.retention_keep_monthly,
+		targets = excluded.targets,
+		updated_at = excluded.updated_at
+	`
+
+	now := time.Now()
+	for _, sched := range schedules {
+		targetIDs := make([]string, 0, len(sched.Targets))
+		for _, target := range sched.Targets {
+			targetIDs = append(targetIDs, target.ID)
+		}
+		targetsStr := strings.Join(targetIDs, ",")
+
+		_, err := tx.ExecContext(ctx, query,
+			sched.InstanceID,
+			sched.ScheduleCron,
+			sched.Retention.KeepDaily,
+			sched.Retention.KeepWeekly,
+			sched.Retention.KeepMonthly,
+			targetsStr,
+			now,
+			now,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to upsert schedule for instance %s: %w", sched.InstanceID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (d *DB) GetAllSchedules(ctx context.Context) ([]*model.InstanceBackupScheduleView, error) {
+	query := `
+	SELECT instance_id, schedule_cron, next_run_at,
+		retention_keep_daily, retention_keep_weekly, retention_keep_monthly, targets,
+		created_at, updated_at
+	FROM backup_schedules
+	`
+
+	rows, err := d.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query backup schedules: %w", err)
+	}
+	defer rows.Close()
+
+	schedules := make([]*model.InstanceBackupScheduleView, 0)
+	for rows.Next() {
+		schedule := &model.InstanceBackupScheduleView{}
+		var retention model.Retention
+		var targetsCSV string
+		err := rows.Scan(
+			&schedule.InstanceID,
+			&schedule.ScheduleCron,
+			&schedule.NextRunAt,
+			&retention.KeepDaily,
+			&retention.KeepWeekly,
+			&retention.KeepMonthly,
+			&targetsCSV,
+			&schedule.CreatedAt,
+			&schedule.UpdatedAt,
+		)
+		if targetsCSV == "" {
+			schedule.TargetIDs = []string{}
+		} else {
+			parts := strings.Split(targetsCSV, ",")
+			schedule.TargetIDs = make([]string, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					schedule.TargetIDs = append(schedule.TargetIDs, p)
+				}
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan backup schedule: %w", err)
+		}
+		schedule.Retention = retention
+		schedules = append(schedules, schedule)
+	}
+
+	return schedules, rows.Err()
+}
+
+func (d *DB) ScheduleNewJob(ctx context.Context, instanceID string) (*model.JobStatus, error) {
 	query := `
 	INSERT INTO job_status (
 		instance_id, iid, is_active, status,
-		last_started_at, last_completed_at, next_run_at,
+		last_started_at, last_completed_at,
 		last_targets_successful, last_targets_total,
 		created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	// iid is next available integer ID for the instance
 	var iid int
 	err := d.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(iid), 0) + 1 FROM job_status WHERE instance_id = ?", instanceID).Scan(&iid)
 	if err != nil {
-		return -1, fmt.Errorf("failed to get next iid: %w", err)
+		return nil, fmt.Errorf("failed to get next iid: %w", err)
 	}
 
-	result, err := d.db.ExecContext(ctx, query, instanceID, iid, 1, model.StatusScheduled, nil, nil, nil, 0, 0, time.Now(), time.Now())
+	result, err := d.db.ExecContext(ctx, query, instanceID, iid, 1, model.StatusScheduled, nil, nil, 0, 0, time.Now(), time.Now())
 	if err != nil {
-		return -1, fmt.Errorf("failed to start new job: %w", err)
+		return nil, fmt.Errorf("failed to start new job: %w", err)
 	}
 
 	jobID, err := result.LastInsertId()
 	if err != nil {
-		return -1, fmt.Errorf("failed to get last insert id: %w", err)
+		return nil, fmt.Errorf("failed to get last insert id: %w", err)
 	}
 
-	return int(jobID), nil
+	return d.GetJobByID(ctx, int(jobID))
 }
 
 // UpdateJobStatus updates a job status record
@@ -213,7 +367,6 @@ func (d *DB) UpdateJobStatus(ctx context.Context, status *model.JobStatus) error
 		last_completed_at = ?,
 		last_targets_successful = ?,
 		last_targets_total = ?,
-		next_run_at = ?,
 		updated_at = ?
 	WHERE id = ?
 	`
@@ -224,7 +377,6 @@ func (d *DB) UpdateJobStatus(ctx context.Context, status *model.JobStatus) error
 		status.LastCompletedAt,
 		status.LastTargetsSuccessful,
 		status.LastTargetsTotal,
-		status.NextRunAt,
 		status.UpdatedAt,
 		status.ID,
 	)
@@ -239,7 +391,7 @@ func (d *DB) UpdateJobStatus(ctx context.Context, status *model.JobStatus) error
 func (d *DB) GetJobStatus(ctx context.Context, instanceID string) ([]*model.JobStatus, error) {
 	query := `
 	SELECT id, iid, instance_id, is_active, status,
-		last_started_at, last_completed_at, next_run_at,
+		last_started_at, last_completed_at,
 		last_targets_successful, last_targets_total,
 		created_at, updated_at
 	FROM job_status
@@ -260,7 +412,7 @@ func (d *DB) GetJobStatus(ctx context.Context, instanceID string) ([]*model.JobS
 		err := rows.Scan(
 			&status.ID, &status.IID,
 			&status.InstanceID, &status.IsActive, &status.Status,
-			&status.LastStartedAt, &status.LastCompletedAt, &status.NextRunAt,
+			&status.LastStartedAt, &status.LastCompletedAt,
 			&status.LastTargetsSuccessful, &status.LastTargetsTotal,
 			&status.CreatedAt, &status.UpdatedAt,
 		)
@@ -277,7 +429,7 @@ func (d *DB) GetJobStatus(ctx context.Context, instanceID string) ([]*model.JobS
 func (d *DB) GetJobByID(ctx context.Context, jobID int) (*model.JobStatus, error) {
 	query := `
 	SELECT id, iid, instance_id, is_active, status,
-		last_started_at, last_completed_at, next_run_at,
+		last_started_at, last_completed_at,
 		last_targets_successful, last_targets_total,
 		created_at, updated_at
 	FROM job_status
@@ -290,39 +442,7 @@ func (d *DB) GetJobByID(ctx context.Context, jobID int) (*model.JobStatus, error
 	err := row.Scan(
 		&status.ID, &status.IID,
 		&status.InstanceID, &status.IsActive, &status.Status,
-		&status.LastStartedAt, &status.LastCompletedAt, &status.NextRunAt,
-		&status.LastTargetsSuccessful, &status.LastTargetsTotal,
-		&status.CreatedAt, &status.UpdatedAt,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to scan job status: %w", err)
-	}
-
-	return status, nil
-}
-
-func (d *DB) GetScheduledJob(ctx context.Context, instanceID string) (*model.JobStatus, error) {
-	query := `
-	SELECT id, iid, instance_id, is_active, status,
-		last_started_at, last_completed_at, next_run_at,
-		last_targets_successful, last_targets_total,
-		created_at, updated_at
-	FROM job_status
-	WHERE instance_id = ? AND status = ?
-	ORDER BY created_at DESC
-	LIMIT 1
-	`
-
-	row := d.db.QueryRowContext(ctx, query, instanceID, model.StatusScheduled)
-
-	status := &model.JobStatus{}
-	err := row.Scan(
-		&status.ID, &status.IID,
-		&status.InstanceID, &status.IsActive, &status.Status,
-		&status.LastStartedAt, &status.LastCompletedAt, &status.NextRunAt,
+		&status.LastStartedAt, &status.LastCompletedAt,
 		&status.LastTargetsSuccessful, &status.LastTargetsTotal,
 		&status.CreatedAt, &status.UpdatedAt,
 	)

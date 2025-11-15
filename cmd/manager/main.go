@@ -80,12 +80,11 @@ func main() {
 		log.Fatalf("docker: %v", err)
 	}
 
-	jobs, err := disc.Discover(ctx)
+	schedules, err := disc.Discover(ctx)
 	if err != nil {
 		log.Fatalf("discover: %v", err)
 	}
-	logger.Info("discovered %d backup jobs", len(jobs))
-
+	logger.Info("discovered %d backup schedules", len(schedules))
 	// Create Docker client
 	dcli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -105,22 +104,22 @@ func main() {
 	logger.Info("scheduler started")
 
 	// Initial discovery and scheduling
-	jobs, err = disc.Discover(ctx)
+	schedules, err = disc.Discover(ctx)
 	if err != nil {
 		log.Fatalf("initial discover: %v", err)
 	}
-	logger.Info("discovered %d backup jobs", len(jobs))
-	r.SyncJobs(jobs)
+	logger.Info("discovered %d backup schedules", len(schedules))
+	r.SyncBackups(schedules)
 
 	// Function to trigger rediscovery
 	triggerDiscovery := func() {
 		logger.Info("triggering rediscovery...")
-		jobs, err := disc.Discover(ctx)
+		schedules, err := disc.Discover(ctx)
 		if err != nil {
 			logger.Error("rediscovery failed: %v", err)
 			return
 		}
-		r.SyncJobs(jobs)
+		r.SyncBackups(schedules)
 	}
 
 	// Start Docker event listener for real-time updates (if enabled)

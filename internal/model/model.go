@@ -37,10 +37,22 @@ type BackupTarget struct {
 
 // InstanceBackupSchedule represents all targets that should be backed up together for an instance
 type InstanceBackupSchedule struct {
-	InstanceID InstanceID
-	Schedule   string // cron schedule from config
-	Targets    []BackupTarget
-	Retention  Retention // Common retention policy (from first target or config default)
+	InstanceID   InstanceID
+	ScheduleCron string // cron schedule from config
+	Targets      []BackupTarget
+	Retention    Retention // Common retention policy (from first target or config default)
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type InstanceBackupScheduleView struct {
+	InstanceID   InstanceID
+	ScheduleCron string     // cron schedule from config
+	NextRunAt    *time.Time // next scheduled run (nil if not scheduled)
+	TargetIDs    []string
+	Retention    Retention // Common retention policy (from first target or config default)
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type Retention struct {
@@ -57,18 +69,6 @@ const (
 	JobSuccess JobState = "success"
 	JobFailed  JobState = "failed"
 )
-
-type BackupJob struct {
-	Target     BackupTarget
-	EnqueuedAt time.Time
-	StartedAt  time.Time
-	FinishedAt time.Time
-	State      JobState
-	Error      string
-	SnapshotID string // restic snapshot id, if known
-	BytesAdded int64
-	FilesNew   int64
-}
 
 // JobStatusState represents the current status of a backup job
 type JobStatusState string
@@ -94,7 +94,6 @@ type JobStatus struct {
 	LastCompletedAt       *time.Time     // when last backup completed (nil if never completed)
 	LastTargetsSuccessful int            // number of successfully backed up targets in last run
 	LastTargetsTotal      int            // total number of targets in last run
-	NextRunAt             *time.Time     // next scheduled run (nil if not scheduled)
 	CreatedAt             time.Time      // when this job was first discovered
 	UpdatedAt             time.Time      // last status update
 }

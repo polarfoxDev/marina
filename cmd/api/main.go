@@ -64,6 +64,10 @@ func main() {
 			r.Get("/{instanceID}", handleGetJobStatus(db))
 		})
 
+		r.Route("/schedules", func(r chi.Router) {
+			r.Get("/", handleGetSchedules(db))
+		})
+
 		r.Route("/logs", func(r chi.Router) {
 			r.Get("/job/{id}", handleGetJobLogs(logger))
 		})
@@ -91,6 +95,7 @@ func main() {
 	<h2>Available Endpoints:</h2>
 	<ul>
 		<li><a href="/api/health">/api/health</a> - Health check</li>
+		<li><a href="/api/schedules">/api/schedules</a> - Backup schedules</li>
 		<li><a href="/api/status/{instanceID}">/api/status/{instanceID}</a> - Job statuses for an instance</li>
 		<li><a href="/api/logs/job/{id}">/api/logs/job/{id}</a> - Logs for a specific job (by job status ID)</li>
 	</ul>
@@ -150,6 +155,20 @@ func handleHealth() http.HandlerFunc {
 			"status": "ok",
 			"time":   time.Now().UTC(),
 		})
+	}
+}
+
+// GET /api/schedules - Get all backup schedules
+func handleGetSchedules(db *database.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.Background()
+		schedules, err := db.GetAllSchedules(ctx)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get schedules: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		respondJSON(w, schedules)
 	}
 }
 
