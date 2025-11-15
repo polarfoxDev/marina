@@ -40,8 +40,6 @@ See [config.example.yml](config.example.yml) for more examples including S3 conf
 ### 2. Add backup labels to your docker-compose.yml
 
 ```yaml
-version: '3.8'
-
 services:
   # Marina backup orchestrator
   marina:
@@ -128,29 +126,29 @@ Marina uses labels with the namespace `eu.polarnight.marina.*` to configure back
 
 ### Common Labels (volumes and containers)
 
-| Label | Required | Description | Example |
-|-------|----------|-------------|---------|
-| `eu.polarnight.marina.enabled` | Yes | Enable backup for this target | `"true"` |
-| `eu.polarnight.marina.instanceID` | Yes | Which backup destination to use (from config.yml) | `"local-backup"` |
-| `eu.polarnight.marina.retention` | No | Retention policy (daily:weekly:monthly) | `"7d:4w:6m"` |
-| `eu.polarnight.marina.tags` | No | Comma-separated tags for Restic | `"env:prod,service:db"` |
-| `eu.polarnight.marina.pre` | No | Command to run before backup | `"echo Starting"` |
-| `eu.polarnight.marina.post` | No | Command to run after backup | `"echo Done"` |
+| Label                             | Required | Description                                       | Example                 |
+| --------------------------------- | -------- | ------------------------------------------------- | ----------------------- |
+| `eu.polarnight.marina.enabled`    | Yes      | Enable backup for this target                     | `"true"`                |
+| `eu.polarnight.marina.instanceID` | Yes      | Which backup destination to use (from config.yml) | `"local-backup"`        |
+| `eu.polarnight.marina.retention`  | No       | Retention policy (daily:weekly:monthly)           | `"7d:4w:6m"`            |
+| `eu.polarnight.marina.tags`       | No       | Comma-separated tags for Restic                   | `"env:prod,service:db"` |
+| `eu.polarnight.marina.pre`        | No       | Command to run before backup                      | `"echo Starting"`       |
+| `eu.polarnight.marina.post`       | No       | Command to run after backup                       | `"echo Done"`           |
 
 ### Volume-Specific Labels
 
-| Label | Required | Description | Example |
-|-------|----------|-------------|---------|
-| `eu.polarnight.marina.paths` | No | Paths to backup (relative to volume root) | `"/"` or `"uploads,config"` |
-| `eu.polarnight.marina.stopAttached` | No | Stop attached containers during backup | `"true"` |
-| `eu.polarnight.marina.exclude` | No | Exclude patterns (comma-separated) | `"*.tmp,cache/*"` |
+| Label                               | Required | Description                               | Example                     |
+| ----------------------------------- | -------- | ----------------------------------------- | --------------------------- |
+| `eu.polarnight.marina.paths`        | No       | Paths to backup (relative to volume root) | `"/"` or `"uploads,config"` |
+| `eu.polarnight.marina.stopAttached` | No       | Stop attached containers during backup    | `"true"`                    |
+| `eu.polarnight.marina.exclude`      | No       | Exclude patterns (comma-separated)        | `"*.tmp,cache/*"`           |
 
 ### Database Container Labels
 
-| Label | Required | Description | Example |
-|-------|----------|-------------|---------|
-| `eu.polarnight.marina.db` | Yes | Database type | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
-| `eu.polarnight.marina.dump.args` | No | Additional dump arguments | `"--clean,--if-exists"` (PostgreSQL)<br>`"-uroot,-p${PASSWORD}"` (MySQL/MariaDB) |
+| Label                            | Required | Description               | Example                                                                          |
+| -------------------------------- | -------- | ------------------------- | -------------------------------------------------------------------------------- |
+| `eu.polarnight.marina.db`        | Yes      | Database type             | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"`                       |
+| `eu.polarnight.marina.dump.args` | No       | Additional dump arguments | `"--clean,--if-exists"` (PostgreSQL)<br>`"-uroot,-p${PASSWORD}"` (MySQL/MariaDB) |
 
 **Important for MySQL/MariaDB**: Pass credentials via `dump.args` using `-uroot,-pPASSWORD` format (no spaces after commas). Do not set `MYSQL_PWD` environment variable as it interferes with container initialization.
 
@@ -201,12 +199,11 @@ go test ./...
 
 ## Project Status
 
-Marina is currently in **beta**. The core functionality is working, but the API and configuration format may change. 
+Marina is currently in **beta**. The core functionality is working, but the API and configuration format may change.
 
 Planned features:
 
 - Recovery operations from Restic snapshots
-- Web dashboard for status monitoring
 - Multi-node federation (mesh mode)
 
 ## License
