@@ -1,5 +1,5 @@
 instances:
-  - id: local-integration
+  - id: backup2
     repository: /backup/repo
     schedule: "* * * * *" # Every minute for fast integration testing
     env:
@@ -10,7 +10,7 @@ retention: "7d:4w:6m"
 stopAttached: true
 
 mesh:
-  nodeName: server1
+  nodeName: server2
   authPassword: mesh
   peers:
-    - http://localhost:8081
+    - http://localhost:8080
