@@ -35,7 +35,7 @@ type LogEntry struct {
 	Level        LogLevel  `json:"level"`
 	Message      string    `json:"message"`
 	InstanceID   string    `json:"instanceId"`   // backup instance ID (e.g., "hetzner-s3")
-	TargetID     string    `json:"targetId"`     // specific target ID (e.g., "volume:mydata", "container:abc123")
+	TargetID     string    `json:"targetId"`     // specific target ID (e.g., "vol:mydata", "dbs:postgres:abc123")
 	JobStatusID  int       `json:"jobStatusId"`  // job_status.id from the status database
 	JobStatusIID int       `json:"jobStatusIid"` // job_status.iid from the status database
 }
