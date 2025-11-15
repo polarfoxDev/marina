@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # Build the React frontend
 FROM node:20-alpine AS frontend
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+RUN corepack enable
 WORKDIR /app
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
