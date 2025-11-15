@@ -18,33 +18,33 @@ type Client struct {
 	httpClient *http.Client
 	timeout    time.Duration
 	password   string // Password for mesh authentication
-	
+
 	// Per-peer token cache with mutex for thread-safe access
 	tokensMu sync.RWMutex
 	tokens   map[string]string // peerURL -> token
-	
+
 	// Circuit breaker: track failed peers to avoid repeated timeouts
-	failuresMu    sync.RWMutex
-	failures      map[string]int       // peerURL -> consecutive failure count
-	backoffUntil  map[string]time.Time // peerURL -> time to retry
-	inFlight      map[string]bool      // peerURL -> whether a request is currently in flight
+	failuresMu   sync.RWMutex
+	failures     map[string]int       // peerURL -> consecutive failure count
+	backoffUntil map[string]time.Time // peerURL -> time to retry
+	inFlight     map[string]bool      // peerURL -> whether a request is currently in flight
 }
 
 // NewClient creates a new mesh client with the specified peer URLs and auth password
 func NewClient(peers []string, password string) *Client {
 	client := &Client{
-		peers:    peers,
-		password: password,
-		tokens:   make(map[string]string),
-		failures: make(map[string]int),
+		peers:        peers,
+		password:     password,
+		tokens:       make(map[string]string),
+		failures:     make(map[string]int),
 		backoffUntil: make(map[string]time.Time),
-		inFlight: make(map[string]bool),
+		inFlight:     make(map[string]bool),
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second, // Increased for reliability
 		},
 		timeout: 8 * time.Second, // Increased to allow time for auth + request
 	}
-	
+
 	// Pre-authenticate with all peers if password is set
 	// This avoids blocking the first request
 	if password != "" {
@@ -52,7 +52,7 @@ func NewClient(peers []string, password string) *Client {
 			go client.getTokenForPeer(peer)
 		}
 	}
-	
+
 	return client
 }
 
@@ -77,14 +77,14 @@ func (c *Client) FetchAllSchedules(ctx context.Context) []PeerSchedules {
 		wg.Add(1)
 		go func(idx int, peerURL string) {
 			defer wg.Done()
-			
+
 			// Check if peer is in backoff period or has too many failures OR already has a request in flight
 			c.failuresMu.RLock()
 			backoffUntil, inBackoff := c.backoffUntil[peerURL]
 			failCount := c.failures[peerURL]
 			isInFlight := c.inFlight[peerURL]
 			c.failuresMu.RUnlock()
-			
+
 			// Skip if already in backoff
 			if inBackoff && time.Now().Before(backoffUntil) {
 				// Skip this peer - it's in backoff
@@ -94,7 +94,7 @@ func (c *Client) FetchAllSchedules(ctx context.Context) []PeerSchedules {
 				}
 				return
 			}
-			
+
 			// Also skip if we've hit 3 failures but backoff hasn't been set yet
 			// This prevents concurrent requests from all timing out before backoff is applied
 			if failCount >= 3 {
@@ -104,7 +104,7 @@ func (c *Client) FetchAllSchedules(ctx context.Context) []PeerSchedules {
 				}
 				return
 			}
-			
+
 			// Skip if a request is already in flight - prevents request stampede
 			if isInFlight {
 				results[idx] = PeerSchedules{
@@ -113,28 +113,28 @@ func (c *Client) FetchAllSchedules(ctx context.Context) []PeerSchedules {
 				}
 				return
 			}
-			
+
 			// Mark this peer as in-flight
 			c.failuresMu.Lock()
 			c.inFlight[peerURL] = true
 			c.failuresMu.Unlock()
-			
+
 			// Ensure we clear the in-flight flag when done
 			defer func() {
 				c.failuresMu.Lock()
 				delete(c.inFlight, peerURL)
 				c.failuresMu.Unlock()
 			}()
-			
+
 			result := c.fetchSchedulesFromPeer(ctx, peerURL)
-			
+
 			// Update failure tracking
 			if result.Error != nil {
 				c.recordFailure(peerURL)
 			} else {
 				c.recordSuccess(peerURL)
 			}
-			
+
 			results[idx] = result
 		}(i, peer)
 	}
@@ -173,17 +173,17 @@ func (c *Client) fetchSchedulesFromPeer(ctx context.Context, peerURL string) Pee
 	// If we get 401, the token might be expired - clear it and retry once
 	if resp.StatusCode == http.StatusUnauthorized && c.password != "" {
 		resp.Body.Close() // Close the first response
-		
+
 		// Clear the cached token for this peer
 		baseURL := req.URL.Scheme + "://" + req.URL.Host
 		c.tokensMu.Lock()
 		delete(c.tokens, baseURL)
 		c.tokensMu.Unlock()
-		
+
 		// Create a new request with fresh context
 		reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
 		defer cancel2()
-		
+
 		req2, err := http.NewRequestWithContext(reqCtx2, "GET", url, nil)
 		if err != nil {
 			result.Error = fmt.Errorf("create retry request: %w", err)
@@ -192,7 +192,7 @@ func (c *Client) fetchSchedulesFromPeer(ctx context.Context, peerURL string) Pee
 		// Mark this as a mesh request to prevent recursion
 		req2.Header.Set("X-Marina-Mesh", "true")
 		c.addAuthHeader(req2) // This will get a fresh token
-		
+
 		resp, err = c.httpClient.Do(req2)
 		if err != nil {
 			result.Error = fmt.Errorf("fetch schedules (retry): %w", err)
@@ -277,14 +277,14 @@ func (c *Client) FetchJobStatusFromPeers(ctx context.Context, instanceID string)
 		wg.Add(1)
 		go func(idx int, peerURL string) {
 			defer wg.Done()
-			
+
 			// Check if peer is in backoff period or has too many failures OR already has a request in flight
 			c.failuresMu.RLock()
 			backoffUntil, inBackoff := c.backoffUntil[peerURL]
 			failCount := c.failures[peerURL]
 			isInFlight := c.inFlight[peerURL]
 			c.failuresMu.RUnlock()
-			
+
 			// Skip if already in backoff
 			if inBackoff && time.Now().Before(backoffUntil) {
 				results[idx] = PeerJobStatuses{
@@ -294,7 +294,7 @@ func (c *Client) FetchJobStatusFromPeers(ctx context.Context, instanceID string)
 				}
 				return
 			}
-			
+
 			// Also skip if we've hit 3 failures but backoff hasn't been set yet
 			// This prevents concurrent requests from all timing out before backoff is applied
 			if failCount >= 3 {
@@ -305,7 +305,7 @@ func (c *Client) FetchJobStatusFromPeers(ctx context.Context, instanceID string)
 				}
 				return
 			}
-			
+
 			// Skip if a request is already in flight - prevents request stampede
 			if isInFlight {
 				results[idx] = PeerJobStatuses{
@@ -315,28 +315,28 @@ func (c *Client) FetchJobStatusFromPeers(ctx context.Context, instanceID string)
 				}
 				return
 			}
-			
+
 			// Mark this peer as in-flight
 			c.failuresMu.Lock()
 			c.inFlight[peerURL] = true
 			c.failuresMu.Unlock()
-			
+
 			// Ensure we clear the in-flight flag when done
 			defer func() {
 				c.failuresMu.Lock()
 				delete(c.inFlight, peerURL)
 				c.failuresMu.Unlock()
 			}()
-			
+
 			result := c.fetchJobStatusFromPeer(ctx, peerURL, instanceID)
-			
+
 			// Update failure tracking
 			if result.Error != nil {
 				c.recordFailure(peerURL)
 			} else {
 				c.recordSuccess(peerURL)
 			}
-			
+
 			results[idx] = result
 		}(i, peer)
 	}
@@ -375,15 +375,15 @@ func (c *Client) fetchJobStatusFromPeer(ctx context.Context, peerURL, instanceID
 	// If we get 401, the token might be expired - clear it and retry once
 	if resp.StatusCode == http.StatusUnauthorized && c.password != "" {
 		resp.Body.Close()
-		
+
 		baseURL := req.URL.Scheme + "://" + req.URL.Host
 		c.tokensMu.Lock()
 		delete(c.tokens, baseURL)
 		c.tokensMu.Unlock()
-		
+
 		reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
 		defer cancel2()
-		
+
 		req2, err := http.NewRequestWithContext(reqCtx2, "GET", url, nil)
 		if err != nil {
 			result.Error = fmt.Errorf("create retry request: %w", err)
@@ -392,7 +392,7 @@ func (c *Client) fetchJobStatusFromPeer(ctx context.Context, peerURL, instanceID
 		// Mark this as a mesh request to prevent recursion
 		req2.Header.Set("X-Marina-Mesh", "true")
 		c.addAuthHeader(req2)
-		
+
 		resp, err = c.httpClient.Do(req2)
 		if err != nil {
 			result.Error = fmt.Errorf("fetch status (retry): %w", err)
@@ -471,22 +471,22 @@ func (c *Client) FetchJobLogs(ctx context.Context, peerURL string, jobID int, li
 	// If we get 401, the token might be expired - clear it and retry once
 	if resp.StatusCode == http.StatusUnauthorized && c.password != "" {
 		resp.Body.Close()
-		
+
 		baseURL := req.URL.Scheme + "://" + req.URL.Host
 		c.tokensMu.Lock()
 		delete(c.tokens, baseURL)
 		c.tokensMu.Unlock()
-		
+
 		reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
 		defer cancel2()
-		
+
 		req2, err := http.NewRequestWithContext(reqCtx2, "GET", url, nil)
 		if err != nil {
 			result.Error = fmt.Errorf("create retry request: %w", err)
 			return result
 		}
 		c.addAuthHeader(req2)
-		
+
 		resp, err = c.httpClient.Do(req2)
 		if err != nil {
 			result.Error = fmt.Errorf("fetch logs (retry): %w", err)
@@ -515,20 +515,20 @@ func (c *Client) addAuthHeader(req *http.Request) {
 	if c.password == "" {
 		return // No auth configured
 	}
-	
+
 	// Extract the base URL from the request
 	baseURL := req.URL.Scheme + "://" + req.URL.Host
-	
+
 	// Check if we have a cached token for this peer
 	c.tokensMu.RLock()
 	token, exists := c.tokens[baseURL]
 	c.tokensMu.RUnlock()
-	
+
 	if exists && token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 		return
 	}
-	
+
 	// Need to get a token - do this outside the request context to avoid timeout
 	// This is done synchronously but only once per peer (or when token expires)
 	token = c.getTokenForPeer(baseURL)
@@ -547,110 +547,65 @@ func (c *Client) getTokenForPeer(peerURL string) string {
 		return token
 	}
 	c.tokensMu.RUnlock()
-	
+
 	// Acquire write lock to authenticate
 	c.tokensMu.Lock()
 	defer c.tokensMu.Unlock()
-	
+
 	// Check again in case another goroutine got it while we waited for the lock
 	if token, exists := c.tokens[peerURL]; exists && token != "" {
 		return token
 	}
-	
+
 	// Try to login and get a token with a separate timeout
 	loginURL := peerURL + "/api/auth/login"
-	
+
 	loginData := map[string]string{"password": c.password}
 	jsonData, err := json.Marshal(loginData)
 	if err != nil {
 		return ""
 	}
-	
+
 	// Create a separate context with timeout for login (not tied to request context)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	
+
 	loginReq, err := http.NewRequestWithContext(ctx, "POST", loginURL, bytes.NewReader(jsonData))
 	if err != nil {
 		return ""
 	}
 	loginReq.Header.Set("Content-Type", "application/json")
-	
+
 	resp, err := c.httpClient.Do(loginReq)
 	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
-	
+
 	var result struct {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return ""
 	}
-	
+
 	// Cache the token for this specific peer
 	c.tokens[peerURL] = result.Token
 	return result.Token
-}
-
-// doRequestWithRetry performs an HTTP request and retries once on 401 with fresh auth
-func (c *Client) doRequestWithRetry(ctx context.Context, method, url string) (*http.Response, error) {
-reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
-defer cancel()
-
-req, err := http.NewRequestWithContext(reqCtx, method, url, nil)
-if err != nil {
-return nil, fmt.Errorf("create request: %w", err)
-}
-c.addAuthHeader(req)
-
-resp, err := c.httpClient.Do(req)
-if err != nil {
-return nil, err
-}
-
-// If we get 401 and have auth configured, retry once with fresh token
-if resp.StatusCode == http.StatusUnauthorized && c.password != "" {
-resp.Body.Close()
-
-// Clear the cached token for this peer
-baseURL := req.URL.Scheme + "://" + req.URL.Host
-c.tokensMu.Lock()
-delete(c.tokens, baseURL)
-c.tokensMu.Unlock()
-
-// Retry with fresh context
-reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
-defer cancel2()
-
-req2, err := http.NewRequestWithContext(reqCtx2, method, url, nil)
-if err != nil {
-return nil, fmt.Errorf("create retry request: %w", err)
-}
-c.addAuthHeader(req2)
-
-resp, err = c.httpClient.Do(req2)
-if err != nil {
-return nil, fmt.Errorf("retry: %w", err)
-}
-}
-
-return resp, nil
 }
 
 // recordFailure increments the failure count for a peer and applies backoff if needed
 func (c *Client) recordFailure(peerURL string) {
 	c.failuresMu.Lock()
 	defer c.failuresMu.Unlock()
-	
+
 	c.failures[peerURL]++
 	failCount := c.failures[peerURL]
-	
+
 	// Apply exponential backoff after 3 failures
 	// 3 failures = 30s, 4 = 60s, 5 = 120s, 6+ = 300s
 	if failCount >= 3 {
@@ -664,7 +619,7 @@ func (c *Client) recordFailure(peerURL string) {
 		}
 		backoffUntil := time.Now().Add(time.Duration(backoffSeconds) * time.Second)
 		c.backoffUntil[peerURL] = backoffUntil
-		
+
 		// Log circuit breaker activation
 		fmt.Printf("Circuit breaker ACTIVATED: peer %s in backoff for %ds (failures: %d, until: %s)\n",
 			peerURL, backoffSeconds, failCount, backoffUntil.Format("15:04:05"))
@@ -676,9 +631,9 @@ func (c *Client) recordFailure(peerURL string) {
 
 // recordSuccess resets the failure count for a peer
 func (c *Client) recordSuccess(peerURL string) {
-c.failuresMu.Lock()
-defer c.failuresMu.Unlock()
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
 
-delete(c.failures, peerURL)
-delete(c.backoffUntil, peerURL)
+	delete(c.failures, peerURL)
+	delete(c.backoffUntil, peerURL)
 }
