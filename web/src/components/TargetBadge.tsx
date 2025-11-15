@@ -1,38 +1,7 @@
+import { parseTargetId } from "../utils";
+
 interface TargetBadgeProps {
   targetId: string;
-}
-
-interface ParsedTarget {
-  type: "vol" | "dbs";
-  name: string;
-  id?: string;
-}
-
-export function parseTargetId(targetId: string): ParsedTarget | null {
-  // Format: vol:name or dbs:name:id
-  const parts = targetId.split(":");
-
-  if (parts[0] === "vol" && parts.length === 2) {
-    return {
-      type: "vol",
-      name: parts[1],
-    };
-  }
-
-  if (parts[0] === "dbs" && parts.length >= 3) {
-    return {
-      type: "dbs",
-      name: parts[1],
-      id: parts.slice(2).join(":"), // Rejoin in case ID contains colons
-    };
-  }
-
-  return null;
-}
-
-export function formatTargetName(targetId: string): string {
-  const parsed = parseTargetId(targetId);
-  return parsed ? parsed.name : targetId;
 }
 
 export function TargetBadge({ targetId }: TargetBadgeProps) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import type { JobStatus, LogEntry, LogLevel } from "../types";
@@ -8,7 +8,8 @@ import {
   getStatusColor,
   getStatusLabel,
 } from "../utils";
-import { TargetBadge, formatTargetName } from "./TargetBadge";
+import { TargetBadge } from "./TargetBadge";
+import { formatTargetName } from "../utils";
 
 export function JobDetailsView() {
   const { instanceId, jobId } = useParams<{
@@ -25,43 +26,7 @@ export function JobDetailsView() {
   const [targetFilter, setTargetFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("all");
 
-  // Load job status and logs together initially and when status changes
-  // Initial load: only when jobId changes
-  useEffect(() => {
-    if (jobId) {
-      loadJobStatus();
-      loadLogs();
-    }
-  }, [jobId]);
-
-  // Poll job status every 5 seconds when job is in progress
-  useEffect(() => {
-    if (!jobId || job?.status !== "in_progress") return;
-
-    const statusInterval = setInterval(() => {
-      loadJobStatus();
-    }, 5000);
-
-    return () => clearInterval(statusInterval);
-  }, [jobId, job?.status]);
-
-  // Separate effect for log polling when job is in progress
-  useEffect(() => {
-    if (!jobId || job?.status !== "in_progress") return;
-
-    // Poll logs every 1 second when job is in progress
-    const logsInterval = setInterval(() => {
-      loadLogs();
-    }, 1000);
-
-    return () => clearInterval(logsInterval);
-  }, [jobId, job?.status]);
-
-  useEffect(() => {
-    applyFilters();
-  }, [logs, targetFilter, levelFilter]);
-
-  async function loadJobStatus() {
+  const loadJobStatus = useCallback(async () => {
     if (!jobId || !instanceId) return;
 
     try {
@@ -79,9 +44,9 @@ export function JobDetailsView() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [jobId, instanceId]);
 
-  async function loadLogs() {
+  const loadLogs = useCallback(async () => {
     if (!jobId) return;
 
     try {
@@ -92,9 +57,9 @@ export function JobDetailsView() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load logs");
     }
-  }
+  }, [jobId]);
 
-  function applyFilters() {
+  const applyFilters = useCallback(() => {
     let filtered = [...logs];
 
     if (targetFilter !== "all") {
@@ -106,7 +71,43 @@ export function JobDetailsView() {
     }
 
     setFilteredLogs(filtered);
-  }
+  }, [logs, targetFilter, levelFilter]);
+
+  // Load job status and logs together initially and when status changes
+  // Initial load: only when jobId changes
+  useEffect(() => {
+    if (jobId) {
+      loadJobStatus();
+      loadLogs();
+    }
+  }, [jobId, loadJobStatus, loadLogs]);
+
+  // Poll job status every 5 seconds when job is in progress
+  useEffect(() => {
+    if (!jobId || job?.status !== "in_progress") return;
+
+    const statusInterval = setInterval(() => {
+      loadJobStatus();
+    }, 5000);
+
+    return () => clearInterval(statusInterval);
+  }, [jobId, job?.status, loadJobStatus]);
+
+  // Separate effect for log polling when job is in progress
+  useEffect(() => {
+    if (!jobId || job?.status !== "in_progress") return;
+
+    // Poll logs every 1 second when job is in progress
+    const logsInterval = setInterval(() => {
+      loadLogs();
+    }, 1000);
+
+    return () => clearInterval(logsInterval);
+  }, [jobId, job?.status, loadLogs]);
+
+  useEffect(() => {
+    applyFilters();
+  }, [applyFilters]);
 
   // Get unique target IDs from logs
   const targetIds = Array.from(

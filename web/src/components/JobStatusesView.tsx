@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import type { JobStatus } from "../types";
@@ -15,15 +15,7 @@ export function JobStatusesView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (instanceId) {
-      loadJobs();
-      const interval = setInterval(loadJobs, 10000); // Refresh every 10s
-      return () => clearInterval(interval);
-    }
-  }, [instanceId]);
-
-  async function loadJobs() {
+  const loadJobs = useCallback(async () => {
     if (!instanceId) return;
 
     try {
@@ -37,7 +29,15 @@ export function JobStatusesView() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [instanceId]);
+
+  useEffect(() => {
+    if (instanceId) {
+      loadJobs();
+      const interval = setInterval(loadJobs, 10000); // Refresh every 10s
+      return () => clearInterval(interval);
+    }
+  }, [instanceId, loadJobs]);
 
   if (loading) {
     return (
