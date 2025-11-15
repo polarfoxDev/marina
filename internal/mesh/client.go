@@ -565,25 +565,33 @@ return resp, nil
 
 // recordFailure increments the failure count for a peer and applies backoff if needed
 func (c *Client) recordFailure(peerURL string) {
-c.failuresMu.Lock()
-defer c.failuresMu.Unlock()
-
-c.failures[peerURL]++
-failCount := c.failures[peerURL]
-
-// Apply exponential backoff after 3 failures
-// 3 failures = 30s, 4 = 60s, 5 = 120s, 6+ = 300s
-if failCount >= 3 {
-backoffSeconds := 30
-if failCount == 4 {
-backoffSeconds = 60
-} else if failCount == 5 {
-backoffSeconds = 120
-} else if failCount >= 6 {
-backoffSeconds = 300
-}
-c.backoffUntil[peerURL] = time.Now().Add(time.Duration(backoffSeconds) * time.Second)
-}
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
+	
+	c.failures[peerURL]++
+	failCount := c.failures[peerURL]
+	
+	// Apply exponential backoff after 3 failures
+	// 3 failures = 30s, 4 = 60s, 5 = 120s, 6+ = 300s
+	if failCount >= 3 {
+		backoffSeconds := 30
+		if failCount == 4 {
+			backoffSeconds = 60
+		} else if failCount == 5 {
+			backoffSeconds = 120
+		} else if failCount >= 6 {
+			backoffSeconds = 300
+		}
+		backoffUntil := time.Now().Add(time.Duration(backoffSeconds) * time.Second)
+		c.backoffUntil[peerURL] = backoffUntil
+		
+		// Log circuit breaker activation
+		fmt.Printf("Circuit breaker ACTIVATED: peer %s in backoff for %ds (failures: %d, until: %s)\n",
+			peerURL, backoffSeconds, failCount, backoffUntil.Format("15:04:05"))
+	} else {
+		// Log failure count building up
+		fmt.Printf("Circuit breaker: peer %s failure count: %d/3\n", peerURL, failCount)
+	}
 }
 
 // recordSuccess resets the failure count for a peer

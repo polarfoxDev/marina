@@ -258,7 +258,11 @@ func handleGetSchedules(db *database.DB, meshClient *mesh.Client, nodeName strin
 			peerResults := meshClient.FetchAllSchedules(ctx)
 			for _, peerResult := range peerResults {
 				if peerResult.Error != nil {
-					log.Printf("Warning: failed to fetch schedules from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					// Don't log backoff errors as warnings - they're expected
+					errMsg := peerResult.Error.Error()
+					if !strings.Contains(errMsg, "peer in backoff") {
+						log.Printf("Warning: failed to fetch schedules from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					}
 					continue
 				}
 				// Add peer schedules with their node name
@@ -302,7 +306,11 @@ func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName strin
 			peerResults := meshClient.FetchJobStatusFromPeers(ctx, instanceID)
 			for _, peerResult := range peerResults {
 				if peerResult.Error != nil {
-					log.Printf("Warning: failed to fetch job statuses from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					// Don't log backoff errors as warnings - they're expected
+					errMsg := peerResult.Error.Error()
+					if !strings.Contains(errMsg, "peer in backoff") {
+						log.Printf("Warning: failed to fetch job statuses from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					}
 					continue
 				}
 				// Add peer statuses with their node information
