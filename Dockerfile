@@ -36,21 +36,25 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go test ./...
 
-# Build the manager and logquery binaries
+# Build the manager and api binaries
 FROM base AS build
 COPY --from=restic /usr/local/bin/restic /usr/local/bin/restic
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -o /out/marina ./cmd/manager && \
-    CGO_ENABLED=0 go build -o /out/logquery ./cmd/logquery
+    CGO_ENABLED=0 go build -o /out/marina-api ./cmd/api
 
 FROM alpine:3.20 AS runner
 WORKDIR /
 RUN apk add --no-cache ca-certificates bash curl coreutils tzdata \
-    && mkdir -p /backup /var/lib/marina \
+    && mkdir -p /backup /var/lib/marina /app/web \
     && update-ca-certificates
 COPY --from=build /out/marina /usr/local/bin/marina
-COPY --from=build /out/logquery /usr/local/bin/logquery
+COPY --from=build /out/marina-api /usr/local/bin/marina-api
 COPY --from=restic /usr/local/bin/restic /usr/local/bin/restic
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV PATH="/usr/local/bin:/usr/bin:/bin"
-ENTRYPOINT ["/usr/local/bin/marina"]
+ENV API_PORT=8080
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

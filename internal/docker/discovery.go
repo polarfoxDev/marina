@@ -29,7 +29,7 @@ func NewDiscoverer(cfg *config.Config) (*Discoverer, error) {
 	return &Discoverer{cli: cli, cfg: cfg}, nil
 }
 
-func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupJob, error) {
+func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedule, error) {
 	var targets []model.BackupTarget
 
 	// Volumes with labels
@@ -111,9 +111,10 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupJob, e
 			retention = d.cfg.Retention
 		}
 
+		containerName := strings.TrimPrefix(firstNonEmpty(c.Names...), "/")
 		t := model.BackupTarget{
-			ID:          "container:" + c.ID,
-			Name:        firstNonEmpty(c.Names...),
+			ID:          "dbs:" + containerName + ":" + c.ID,
+			Name:        containerName,
 			Type:        model.TargetDB,
 			InstanceID:  model.InstanceID(lbl[labels.LInstanceID]),
 			Retention:   helpers.ParseRetention(retention),
@@ -129,7 +130,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupJob, e
 	}
 
 	// Group targets by instance and create InstanceBackupJobs
-	instanceMap := make(map[model.InstanceID]*model.InstanceBackupJob)
+	instanceMap := make(map[model.InstanceID]*model.InstanceBackupSchedule)
 
 	for _, t := range targets {
 		if _, exists := instanceMap[t.InstanceID]; !exists {
@@ -149,24 +150,24 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupJob, e
 				retention = d.cfg.Retention
 			}
 
-			instanceMap[t.InstanceID] = &model.InstanceBackupJob{
-				InstanceID: t.InstanceID,
-				Schedule:   schedule,
-				Targets:    []model.BackupTarget{},
-				Retention:  helpers.ParseRetention(retention),
+			instanceMap[t.InstanceID] = &model.InstanceBackupSchedule{
+				InstanceID:   t.InstanceID,
+				ScheduleCron: schedule,
+				Targets:      []model.BackupTarget{},
+				Retention:    helpers.ParseRetention(retention),
 			}
 		}
 		instanceMap[t.InstanceID].Targets = append(instanceMap[t.InstanceID].Targets, t)
 	}
 
 	// Convert map to slice
-	var jobs []model.InstanceBackupJob
+	var jobs []model.InstanceBackupSchedule
 	for _, job := range instanceMap {
-		if job.Schedule == "" {
+		if job.ScheduleCron == "" {
 			// Skip instances without a schedule
 			continue
 		}
-		if err := helpers.ValidateCron(job.Schedule); err != nil {
+		if err := helpers.ValidateCron(job.ScheduleCron); err != nil {
 			// Skip instances with invalid schedules
 			continue
 		}

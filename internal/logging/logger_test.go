@@ -2,23 +2,35 @@ package logging
 
 import (
 	"bytes"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/polarfoxDev/marina/internal/database"
 )
 
-func TestLogger_BasicLogging(t *testing.T) {
-	// Create temp database
+// helper function to create a test database with proper schema
+func setupTestDB(t *testing.T) *database.DB {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
+	db, err := database.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("failed to initialize test database: %v", err)
+	}
+
+	return db
+}
+
+func TestLogger_BasicLogging(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
 	console := &bytes.Buffer{}
-	logger, err := New(dbPath, console)
+	logger, err := New(db.GetDB(), console)
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)
 	}
-	defer logger.Close()
 
 	// Log some messages
 	logger.Info("test info message")
@@ -36,26 +48,20 @@ func TestLogger_BasicLogging(t *testing.T) {
 	if !bytes.Contains(console.Bytes(), []byte("test error message")) {
 		t.Errorf("console output missing error message: %s", output)
 	}
-
-	// Verify database was created
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		t.Errorf("database file was not created")
-	}
 }
 
 func TestLogger_JobLogging(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
+	db := setupTestDB(t)
+	defer db.Close()
 
-	logger, err := New(dbPath, &bytes.Buffer{})
+	logger, err := New(db.GetDB(), &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)
 	}
-	defer logger.Close()
 
 	// Log with instance and target context
-	logger.JobLog(LevelInfo, "instance-abc", "volume:mydata", "backup started")
-	logger.JobLog(LevelInfo, "instance-xyz", "container:db123", "backup completed")
+	logger.JobLog(LevelInfo, "instance-abc", "volume:mydata", 1, 1, "backup started")
+	logger.JobLog(LevelInfo, "instance-xyz", "container:db123", 2, 1, "backup completed")
 
 	// Query by target ID
 	entries, err := logger.Query(QueryOptions{TargetID: "volume:mydata"})
@@ -79,19 +85,18 @@ func TestLogger_JobLogging(t *testing.T) {
 }
 
 func TestLogger_QueryByInstance(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
+	db := setupTestDB(t)
+	defer db.Close()
 
-	logger, err := New(dbPath, &bytes.Buffer{})
+	logger, err := New(db.GetDB(), &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)
 	}
-	defer logger.Close()
 
 	// Log entries for different instances
-	logger.JobLog(LevelInfo, "instance-1", "volume:vol1", "message 1")
-	logger.JobLog(LevelInfo, "instance-2", "volume:vol2", "message 2")
-	logger.JobLog(LevelInfo, "instance-1", "container:db1", "message 3")
+	logger.JobLog(LevelInfo, "instance-1", "volume:vol1", 1, 1, "message 1")
+	logger.JobLog(LevelInfo, "instance-2", "volume:vol2", 2, 1, "message 2")
+	logger.JobLog(LevelInfo, "instance-1", "container:db1", 1, 2, "message 3")
 
 	// Query by instance ID
 	entries, err := logger.Query(QueryOptions{InstanceID: "instance-1"})
@@ -105,14 +110,13 @@ func TestLogger_QueryByInstance(t *testing.T) {
 }
 
 func TestLogger_QueryByLevel(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
+	db := setupTestDB(t)
+	defer db.Close()
 
-	logger, err := New(dbPath, &bytes.Buffer{})
+	logger, err := New(db.GetDB(), &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)
 	}
-	defer logger.Close()
 
 	// Log entries with different levels
 	logger.Info("info message")
@@ -138,14 +142,13 @@ func TestLogger_QueryByLevel(t *testing.T) {
 }
 
 func TestLogger_QueryByTimeRange(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
+	db := setupTestDB(t)
+	defer db.Close()
 
-	logger, err := New(dbPath, &bytes.Buffer{})
+	logger, err := New(db.GetDB(), &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)
 	}
-	defer logger.Close()
 
 	start := time.Now()
 	logger.Info("message 1")
@@ -180,14 +183,13 @@ func TestLogger_QueryByTimeRange(t *testing.T) {
 }
 
 func TestLogger_QueryWithLimit(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
+	db := setupTestDB(t)
+	defer db.Close()
 
-	logger, err := New(dbPath, &bytes.Buffer{})
+	logger, err := New(db.GetDB(), &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)
 	}
-	defer logger.Close()
 
 	// Log multiple messages
 	for i := 0; i < 10; i++ {
@@ -206,14 +208,13 @@ func TestLogger_QueryWithLimit(t *testing.T) {
 }
 
 func TestLogger_PruneOldLogs(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
+	db := setupTestDB(t)
+	defer db.Close()
 
-	logger, err := New(dbPath, &bytes.Buffer{})
+	logger, err := New(db.GetDB(), &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)
 	}
-	defer logger.Close()
 
 	// Log some messages
 	logger.Info("message 1")
@@ -258,15 +259,14 @@ func TestLogger_PruneOldLogs(t *testing.T) {
 }
 
 func TestLogger_LogfCompatibility(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
+	db := setupTestDB(t)
+	defer db.Close()
 
 	console := &bytes.Buffer{}
-	logger, err := New(dbPath, console)
+	logger, err := New(db.GetDB(), console)
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)
 	}
-	defer logger.Close()
 
 	// Test Logf method (compatibility with old signature)
 	logger.Logf("test message %d", 42)

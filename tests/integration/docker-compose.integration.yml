@@ -4,8 +4,11 @@ services:
     container_name: marina-it
     # user: "0:0" # run as root in integration to initialize /backup repo
     restart: unless-stopped
+    ports:
+      - "8080:8080"
     environment:
       - CONFIG_FILE=/config/config.yml
+      - API_PORT=8080
     volumes:
       - data:/var/lib/marina/
       - /var/run/docker.sock:/var/run/docker.sock

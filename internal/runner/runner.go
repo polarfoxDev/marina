@@ -12,6 +12,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/polarfoxDev/marina/internal/backend"
+	"github.com/polarfoxDev/marina/internal/database"
 	"github.com/polarfoxDev/marina/internal/docker"
 	"github.com/polarfoxDev/marina/internal/logging"
 	"github.com/polarfoxDev/marina/internal/model"
@@ -24,50 +25,64 @@ type Runner struct {
 	BackupInstances map[string]*backend.BackupInstance // keyed by destination ID
 	Docker          *client.Client
 	Logger          *logging.Logger
+	DB              *database.DB // Database for persistent job status tracking
 
 	// Track scheduled jobs for dynamic updates
-	scheduledJobs map[model.InstanceID]cron.EntryID            // instance ID -> cron entry ID
-	jobs          map[model.InstanceID]model.InstanceBackupJob // instance ID -> backup job config
+	scheduledJobs map[model.InstanceID]cron.EntryID                 // instance ID -> cron entry ID
+	jobs          map[model.InstanceID]model.InstanceBackupSchedule // instance ID -> backup job config
 }
 
-func New(instances map[string]*backend.BackupInstance, docker *client.Client, logger *logging.Logger) *Runner {
+func New(instances map[string]*backend.BackupInstance, docker *client.Client, logger *logging.Logger, db *database.DB) *Runner {
 	return &Runner{
 		Cron:            cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
 		BackupInstances: instances,
 		Docker:          docker,
 		Logger:          logger,
+		DB:              db,
 		scheduledJobs:   make(map[model.InstanceID]cron.EntryID),
-		jobs:            make(map[model.InstanceID]model.InstanceBackupJob),
+		jobs:            make(map[model.InstanceID]model.InstanceBackupSchedule),
 	}
 }
 
-func (r *Runner) ScheduleJob(job model.InstanceBackupJob) error {
+func (r *Runner) ScheduleBackup(backupSchedule model.InstanceBackupSchedule) error {
 	// Check if already scheduled
-	if existingEntry, ok := r.scheduledJobs[job.InstanceID]; ok {
+	if existingEntry, ok := r.scheduledJobs[backupSchedule.InstanceID]; ok {
 		// Check if schedule or config changed
-		if existing, found := r.jobs[job.InstanceID]; found {
-			if existing.Schedule == job.Schedule && jobsEqual(existing, job) {
+		if existing, found := r.jobs[backupSchedule.InstanceID]; found {
+			if existing.ScheduleCron == backupSchedule.ScheduleCron && jobsEqual(existing, backupSchedule) {
 				// No changes, skip
 				return nil
 			}
 		}
 		// Remove old entry
 		r.Cron.Remove(existingEntry)
-		delete(r.scheduledJobs, job.InstanceID)
+		delete(r.scheduledJobs, backupSchedule.InstanceID)
 	}
 
 	// Schedule new job
-	entryID, err := r.Cron.AddFunc(job.Schedule, func() {
+	entryID, err := r.Cron.AddFunc(backupSchedule.ScheduleCron, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
 		defer cancel()
 
-		// Create instance-level logger
-		instanceLogger := r.Logger.NewJobLogger(string(job.InstanceID))
+		// Create job status first to get IDs for logger
+		var jobStatusID, jobStatusIID int
+		if r.DB != nil {
+			jobStatus, err := r.DB.ScheduleNewJob(ctx, string(backupSchedule.InstanceID))
+			if err != nil {
+				r.Logger.Error("failed to create job status: %v", err)
+				return
+			}
+			jobStatusID = jobStatus.ID
+			jobStatusIID = jobStatus.IID
+		}
 
-		instanceLogger.Info("instance backup started (%d targets)", len(job.Targets))
+		// Create instance-level logger with job status IDs
+		instanceLogger := r.Logger.NewJobLogger(string(backupSchedule.InstanceID), jobStatusID, jobStatusIID)
+
+		instanceLogger.Info("instance backup started (%d targets)", len(backupSchedule.Targets))
 		startTime := time.Now()
 
-		if err := r.runInstanceBackup(ctx, job, instanceLogger); err != nil {
+		if err := r.runInstanceBackup(ctx, backupSchedule, jobStatusID, instanceLogger); err != nil {
 			instanceLogger.Error("instance backup failed: %v", err)
 		} else {
 			duration := time.Since(startTime)
@@ -78,8 +93,18 @@ func (r *Runner) ScheduleJob(job model.InstanceBackupJob) error {
 		return err
 	}
 
-	r.scheduledJobs[job.InstanceID] = entryID
-	r.jobs[job.InstanceID] = job
+	r.scheduledJobs[backupSchedule.InstanceID] = entryID
+	r.jobs[backupSchedule.InstanceID] = backupSchedule
+
+	nextRunTime := r.getNextRunTime(backupSchedule.InstanceID)
+	// Update next run time in DB
+	if r.DB != nil {
+		ctx := context.Background()
+		if err := r.DB.UpdateNextRunTime(ctx, string(backupSchedule.InstanceID), nextRunTime); err != nil {
+			r.Logger.Warn("failed to update next run time for instance %s: %v", backupSchedule.InstanceID, err)
+		}
+	}
+
 	return nil
 }
 
@@ -88,17 +113,31 @@ func (r *Runner) RemoveJob(instanceID model.InstanceID) {
 	if entryID, ok := r.scheduledJobs[instanceID]; ok {
 		r.Cron.Remove(entryID)
 		delete(r.scheduledJobs, instanceID)
+
+		if r.DB != nil {
+			ctx := context.Background()
+			if err := r.DB.ArchiveInstance(ctx, string(instanceID)); err != nil {
+				r.Logger.Warn("failed to archive job status for instance %s: %v", instanceID, err)
+			}
+
+		}
+
 		delete(r.jobs, instanceID)
 	}
 }
 
-// SyncJobs updates the scheduler with a new set of discovered jobs
-// Adds new jobs, removes deleted ones, and updates changed ones
-func (r *Runner) SyncJobs(newJobs []model.InstanceBackupJob) {
-	r.Logger.Info("syncing %d discovered instance jobs...", len(newJobs))
-	newSet := make(map[model.InstanceID]model.InstanceBackupJob)
-	for _, j := range newJobs {
+// SyncBackups updates the scheduler with a new set of discovered backups
+// Adds new backups, removes deleted ones, and updates changed ones
+func (r *Runner) SyncBackups(newBackups []model.InstanceBackupSchedule) {
+	r.Logger.Info("syncing %d discovered instance backups...", len(newBackups))
+	newSet := make(map[model.InstanceID]model.InstanceBackupSchedule)
+	for _, j := range newBackups {
 		newSet[j.InstanceID] = j
+	}
+
+	if r.DB != nil {
+		ctx := context.Background()
+		r.DB.AddOrUpdateSchedules(ctx, newSet)
 	}
 
 	// Remove jobs that no longer exist
@@ -122,20 +161,20 @@ func (r *Runner) SyncJobs(newJobs []model.InstanceBackupJob) {
 		isNew := !found
 		isChanged := found && !jobsEqual(existing, job)
 
-		if err := r.ScheduleJob(job); err != nil {
+		if err := r.ScheduleBackup(job); err != nil {
 			r.Logger.Error("schedule instance %s: %v", id, err)
 		} else {
 			// Only log if it's new or changed
 			if isNew || isChanged {
-				r.Logger.Info("scheduled instance %s (%d targets, schedule: %s)", id, len(job.Targets), job.Schedule)
+				r.Logger.Info("scheduled instance %s (%d targets, schedule: %s)", id, len(job.Targets), job.ScheduleCron)
 			}
 		}
 	}
 }
 
 // jobsEqual checks if two instance backup jobs are functionally equivalent
-func jobsEqual(a, b model.InstanceBackupJob) bool {
-	if a.Schedule != b.Schedule || len(a.Targets) != len(b.Targets) {
+func jobsEqual(a, b model.InstanceBackupSchedule) bool {
+	if a.ScheduleCron != b.ScheduleCron || len(a.Targets) != len(b.Targets) {
 		return false
 	}
 
@@ -155,20 +194,85 @@ func jobsEqual(a, b model.InstanceBackupJob) bool {
 func (r *Runner) Start()                   { r.Cron.Start() }
 func (r *Runner) Stop(ctx context.Context) { r.Cron.Stop() }
 
-func (r *Runner) TriggerNow(ctx context.Context, job model.InstanceBackupJob) error {
-	instanceLogger := r.Logger.NewJobLogger(string(job.InstanceID))
-	return r.runInstanceBackup(ctx, job, instanceLogger)
+func (r *Runner) TriggerNow(ctx context.Context, job model.InstanceBackupSchedule) error {
+	// Get or create job status to get IDs for logger
+	var jobStatusID, jobStatusIID int
+	if r.DB != nil {
+		jobStatus, err := r.DB.ScheduleNewJob(ctx, string(job.InstanceID))
+		if err != nil {
+			return fmt.Errorf("failed to create job status: %w", err)
+		}
+		jobStatusID = jobStatus.ID
+		jobStatusIID = jobStatus.IID
+	}
+
+	instanceLogger := r.Logger.NewJobLogger(string(job.InstanceID), jobStatusID, jobStatusIID)
+	return r.runInstanceBackup(ctx, job, jobStatusID, instanceLogger)
+}
+
+// getNextRunTime retrieves the next scheduled run time for an instance from the cron entry
+func (r *Runner) getNextRunTime(instanceID model.InstanceID) *time.Time {
+	if entryID, ok := r.scheduledJobs[instanceID]; ok {
+		entry := r.Cron.Entry(entryID)
+		if !entry.Next.IsZero() {
+			return &entry.Next
+		}
+	}
+	return nil
+}
+
+// updateJobStatus is a helper to update job status in the database
+func (r *Runner) updateJobStatus(ctx context.Context, jobStatusID int, updateFn func(*model.JobStatus)) error {
+	if r.DB == nil {
+		return nil
+	}
+
+	jobStatus, err := r.DB.GetJobByID(ctx, jobStatusID)
+	if err != nil {
+		return fmt.Errorf("failed to get job status: %w", err)
+	}
+	if jobStatus == nil {
+		return fmt.Errorf("job status not found for ID %d", jobStatusID)
+	}
+
+	updateFn(jobStatus)
+
+	if err := r.DB.UpdateJobStatus(ctx, jobStatus); err != nil {
+		return fmt.Errorf("failed to update job status: %w", err)
+	}
+
+	return nil
 }
 
 // runInstanceBackup executes all backups for an instance in a single Restic operation
-func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackupJob, instanceLogger *logging.JobLogger) error {
+func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackupSchedule, jobStatusID int, instanceLogger *logging.JobLogger) error {
 	dest, ok := r.BackupInstances[string(job.InstanceID)]
 	if !ok {
 		return fmt.Errorf("instance %q not found", job.InstanceID)
 	}
 
+	nextRunTime := r.getNextRunTime(job.InstanceID)
+	// Update next run time in DB
+	if r.DB != nil {
+		ctx := context.Background()
+		if err := r.DB.UpdateNextRunTime(ctx, string(job.InstanceID), nextRunTime); err != nil {
+			r.Logger.Warn("failed to update next run time for instance %s: %v", job.InstanceID, err)
+		}
+	}
+
+	startTime := time.Now()
+
+	// Update job status to in-progress
+	if err := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
+		status.Status = model.StatusInProgress
+		status.LastStartedAt = &startTime
+		status.LastTargetsTotal = len(job.Targets)
+	}); err != nil {
+		return err
+	}
+
 	// Generate single timestamp for this instance backup run
-	timestamp := time.Now().Format("20060102-150405")
+	timestamp := startTime.Format("20060102-150405")
 
 	// Collect all staging paths from all targets
 	var allPaths []string
@@ -183,7 +287,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		}
 	}()
 
-	// Track failed targets
+	// Track failed targets and warnings
 	var failedTargets []string
 
 	// Process each target and collect staged paths
@@ -227,9 +331,15 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		allTags = append(allTags, target.Tags...)
 		allExcludes = append(allExcludes, target.Exclude...)
 	}
-
 	// Check if all targets failed
 	if len(allPaths) == 0 {
+		r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
+			status.Status = model.StatusFailed
+			now := time.Now()
+			status.LastCompletedAt = &now
+			status.LastTargetsSuccessful = 0
+		})
+
 		if len(failedTargets) > 0 {
 			return fmt.Errorf("all targets failed: %v", failedTargets)
 		}
@@ -247,14 +357,30 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	allExcludes = deduplicate(allExcludes)
 
 	// Perform single backup with all collected paths
-	instanceLogger.Info("backing up %d paths to instance %s", len(allPaths), job.InstanceID)
 	_, err := dest.Backup(ctx, allPaths, allTags, allExcludes)
 	if err != nil {
+		r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
+			status.Status = model.StatusFailed
+			now := time.Now()
+			status.LastCompletedAt = &now
+			status.LastTargetsSuccessful = 0
+		})
 		return fmt.Errorf("backup failed: %w", err)
 	}
 
 	// Apply retention policy
 	_, _ = dest.DeleteOldSnapshots(ctx, job.Retention.KeepDaily, job.Retention.KeepWeekly, job.Retention.KeepMonthly)
+
+	// Update job status to success/partial success
+	r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
+		status.Status = model.StatusSuccess
+		if len(failedTargets) > 0 {
+			status.Status = model.StatusPartialSuccess
+		}
+		now := time.Now()
+		status.LastCompletedAt = &now
+		status.LastTargetsSuccessful = len(job.Targets) - len(failedTargets)
+	})
 
 	return nil
 }
