@@ -36,6 +36,11 @@ mesh:
   # Optional custom node name (defaults to hostname if not specified)
   nodeName: ${NODE_NAME} # or "production-server-1"
   
+  # Optional authentication password for mesh and dashboard access
+  # If set, all nodes in the mesh should use the same password
+  # Can also be set via MARINA_AUTH_PASSWORD environment variable
+  authPassword: ${MARINA_AUTH_PASSWORD} # or "your-secure-password"
+  
   # List of peer Marina API URLs to fetch data from
   # Each peer should be reachable via HTTP/HTTPS
   peers:

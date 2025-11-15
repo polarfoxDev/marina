@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/polarfoxDev/marina/internal/auth"
 	"github.com/polarfoxDev/marina/internal/config"
 	"github.com/polarfoxDev/marina/internal/database"
 	"github.com/polarfoxDev/marina/internal/logging"
@@ -59,10 +60,32 @@ func main() {
 	}
 	log.Printf("Node name: %s", nodeName)
 
+	// Initialize authentication
+	var authPassword string
+	if cfg.Mesh != nil && cfg.Mesh.AuthPassword != "" {
+		authPassword = cfg.Mesh.AuthPassword
+	} else {
+		authPassword = os.Getenv("MARINA_AUTH_PASSWORD")
+	}
+	authHandler := auth.New(authPassword)
+	if authHandler.IsEnabled() {
+		log.Printf("Authentication enabled")
+	}
+
+	// Generate a token for mesh client authentication
+	var meshAuthToken string
+	if authHandler.IsEnabled() {
+		token, err := authHandler.GenerateToken()
+		if err != nil {
+			log.Fatalf("generate mesh auth token: %v", err)
+		}
+		meshAuthToken = token
+	}
+
 	// Initialize mesh client if peers are configured
 	var meshClient *mesh.Client
 	if cfg.Mesh != nil && len(cfg.Mesh.Peers) > 0 {
-		meshClient = mesh.NewClient(cfg.Mesh.Peers)
+		meshClient = mesh.NewClient(cfg.Mesh.Peers, meshAuthToken)
 		log.Printf("Mesh mode enabled with %d peer(s)", len(cfg.Mesh.Peers))
 	}
 
@@ -121,38 +144,51 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	// API routes
-	r.Route("/api", func(r chi.Router) {
-		r.Get("/health", handleHealth())
-		r.Get("/info", handleInfo(nodeName))
-
-		r.Route("/status", func(r chi.Router) {
-			r.Get("/{instanceID}", handleGetJobStatus(db, meshClient, nodeName))
-		})
-
-		r.Route("/schedules", func(r chi.Router) {
-			r.Get("/", handleGetSchedules(db, meshClient, nodeName))
-		})
-
-		r.Route("/logs", func(r chi.Router) {
-			r.Get("/job/{id}", handleGetJobLogs(logger, meshClient))
-		})
+	// Public routes (no auth required)
+	r.Group(func(r chi.Router) {
+		r.Post("/api/auth/login", handleLogin(authHandler))
+		r.Post("/api/auth/logout", handleLogout(authHandler))
+		r.Get("/api/auth/check", handleAuthCheck(authHandler))
 	})
 
-	// Serve static files for React app (will be added later)
-	staticDir := envDefault("STATIC_DIR", "/app/web")
-	indexPath := filepath.Join(staticDir, "index.html")
+	// Protected API routes (auth required if enabled)
+	r.Group(func(r chi.Router) {
+		// Apply auth middleware only if auth is enabled
+		if authHandler.IsEnabled() {
+			r.Use(authHandler.Middleware)
+		}
 
-	// Only use file server if index.html exists
-	if _, err := os.Stat(indexPath); err == nil {
-		log.Printf("Serving static files from %s", staticDir)
-		fileServer(r, "/", http.Dir(staticDir))
-	} else {
-		// Placeholder for when no frontend is built yet
-		log.Printf("No frontend found at %s, serving placeholder", indexPath)
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `<!DOCTYPE html>
+		r.Route("/api", func(r chi.Router) {
+			r.Get("/health", handleHealth())
+			r.Get("/info", handleInfo(nodeName))
+
+			r.Route("/status", func(r chi.Router) {
+				r.Get("/{instanceID}", handleGetJobStatus(db, meshClient, nodeName))
+			})
+
+			r.Route("/schedules", func(r chi.Router) {
+				r.Get("/", handleGetSchedules(db, meshClient, nodeName))
+			})
+
+			r.Route("/logs", func(r chi.Router) {
+				r.Get("/job/{id}", handleGetJobLogs(logger, meshClient))
+			})
+		})
+
+		// Serve static files for React app (will be added later)
+		staticDir := envDefault("STATIC_DIR", "/app/web")
+		indexPath := filepath.Join(staticDir, "index.html")
+
+		// Only use file server if index.html exists
+		if _, err := os.Stat(indexPath); err == nil {
+			log.Printf("Serving static files from %s", staticDir)
+			fileServer(r, "/", http.Dir(staticDir))
+		} else {
+			// Placeholder for when no frontend is built yet
+			log.Printf("No frontend found at %s, serving placeholder", indexPath)
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head><title>Marina Status</title></head>
 <body>
@@ -167,8 +203,9 @@ func main() {
 	</ul>
 </body>
 </html>`)
-		})
-	}
+			})
+		}
+	})
 
 	// Start server
 	port := envDefault("API_PORT", "8080")
@@ -381,4 +418,100 @@ func envDefault(k, def string) string {
 		return def
 	}
 	return v
+}
+
+// POST /api/auth/login - Login endpoint
+func handleLogin(authHandler *auth.Auth) http.HandlerFunc {
+return func(w http.ResponseWriter, r *http.Request) {
+// If auth is not enabled, always succeed
+if !authHandler.IsEnabled() {
+respondJSON(w, map[string]interface{}{
+"success": true,
+"message": "Authentication not required",
+})
+return
+}
+
+var req struct {
+Password string `json:"password"`
+}
+
+if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+http.Error(w, "Invalid request", http.StatusBadRequest)
+return
+}
+
+if !authHandler.ValidatePassword(req.Password) {
+http.Error(w, "Invalid password", http.StatusUnauthorized)
+return
+}
+
+// Generate token
+token, err := authHandler.GenerateToken()
+if err != nil {
+http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+return
+}
+
+// Set cookie
+http.SetCookie(w, &http.Cookie{
+Name:     auth.CookieName,
+Value:    token,
+Path:     "/",
+HttpOnly: true,
+Secure:   r.TLS != nil,
+SameSite: http.SameSiteLaxMode,
+MaxAge:   int(auth.TokenExpiry.Seconds()),
+})
+
+respondJSON(w, map[string]interface{}{
+"success": true,
+"token":   token,
+})
+}
+}
+
+// POST /api/auth/logout - Logout endpoint
+func handleLogout(authHandler *auth.Auth) http.HandlerFunc {
+return func(w http.ResponseWriter, r *http.Request) {
+token := authHandler.GetTokenFromRequest(r)
+if token != "" {
+authHandler.InvalidateToken(token)
+}
+
+// Clear cookie
+http.SetCookie(w, &http.Cookie{
+Name:     auth.CookieName,
+Value:    "",
+Path:     "/",
+HttpOnly: true,
+MaxAge:   -1,
+})
+
+respondJSON(w, map[string]interface{}{
+"success": true,
+})
+}
+}
+
+// GET /api/auth/check - Check if authentication is required and if user is authenticated
+func handleAuthCheck(authHandler *auth.Auth) http.HandlerFunc {
+return func(w http.ResponseWriter, r *http.Request) {
+response := map[string]interface{}{
+"authRequired": authHandler.IsEnabled(),
+"authenticated": false,
+}
+
+if authHandler.IsEnabled() {
+token := authHandler.GetTokenFromRequest(r)
+if token != "" && authHandler.ValidateToken(token) {
+response["authenticated"] = true
+}
+} else {
+// If auth is not required, consider user authenticated
+response["authenticated"] = true
+}
+
+respondJSON(w, response)
+}
 }

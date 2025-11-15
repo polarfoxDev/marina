@@ -16,11 +16,10 @@ type Client struct {
 peers      []string
 httpClient *http.Client
 timeout    time.Duration
-	authToken  string // Authentication token for mesh peers
 }
 
 // NewClient creates a new mesh client with the specified peer URLs
-func NewClient(peers []string, authToken string) *Client {
+func NewClient(peers []string) *Client {
 return &Client{
 peers: peers,
 httpClient: &http.Client{
@@ -75,7 +74,6 @@ if err != nil {
 result.Error = fmt.Errorf("create request: %w", err)
 return result
 }
-	c.addAuthHeader(req)
 
 resp, err := c.httpClient.Do(req)
 if err != nil {
@@ -117,7 +115,6 @@ if err != nil {
 return ""
 }
 
-	c.addAuthHeader(req)
 resp, err := c.httpClient.Do(req)
 if err != nil {
 return ""
@@ -184,7 +181,6 @@ if err != nil {
 result.Error = fmt.Errorf("create request: %w", err)
 return result
 }
-	c.addAuthHeader(req)
 
 resp, err := c.httpClient.Do(req)
 if err != nil {
@@ -251,7 +247,6 @@ if err != nil {
 result.Error = fmt.Errorf("create request: %w", err)
 return result
 }
-	c.addAuthHeader(req)
 
 resp, err := c.httpClient.Do(req)
 if err != nil {
@@ -273,11 +268,4 @@ return result
 
 result.Logs = logs
 return result
-}
-
-// addAuthHeader adds authentication header to the request if token is set
-func (c *Client) addAuthHeader(req *http.Request) {
-if c.authToken != "" {
-req.Header.Set("Authorization", "Bearer "+c.authToken)
-}
 }
