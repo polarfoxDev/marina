@@ -178,34 +178,8 @@ func main() {
 
 	// Serve static files for React app (no auth required - login page needs to be accessible)
 	staticDir := envDefault("STATIC_DIR", "/app/web")
-	indexPath := filepath.Join(staticDir, "index.html")
-
-	// Only use file server if index.html exists
-	if _, err := os.Stat(indexPath); err == nil {
-		log.Printf("Serving static files from %s", staticDir)
-		fileServer(r, "/", http.Dir(staticDir))
-	} else {
-		// Placeholder for when no frontend is built yet
-		log.Printf("No frontend found at %s, serving placeholder", indexPath)
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `<!DOCTYPE html>
-<html>
-<head><title>Marina Status</title></head>
-<body>
-	<h1>Marina Backup Status API</h1>
-	<p>API is running. Frontend will be available here once built.</p>
-	<h2>Available Endpoints:</h2>
-	<ul>
-		<li><a href="/api/health">/api/health</a> - Health check</li>
-		<li><a href="/api/schedules">/api/schedules</a> - Backup schedules</li>
-		<li><a href="/api/status/{instanceID}">/api/status/{instanceID}</a> - Job statuses for an instance</li>
-		<li><a href="/api/logs/job/{id}">/api/logs/job/{id}</a> - Logs for a specific job (by job status ID)</li>
-	</ul>
-</body>
-</html>`)
-		})
-	}
+	log.Printf("Serving static files from %s", staticDir)
+	fileServer(r, "/", http.Dir(staticDir))
 
 	// Start server
 	port := envDefault("API_PORT", "8080")
