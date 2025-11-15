@@ -624,25 +624,7 @@ c.tokensMu.Lock()
 delete(c.tokens, baseURL)
 c.tokensMu.Unlock()
 
-// Retry with fresh context
-reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
-defer cancel2()
-
-req2, err := http.NewRequestWithContext(reqCtx2, method, url, nil)
-if err != nil {
-return nil, fmt.Errorf("create retry request: %w", err)
-}
-c.addAuthHeader(req2)
-
-resp, err = c.httpClient.Do(req2)
-if err != nil {
-return nil, fmt.Errorf("retry: %w", err)
-}
-}
-
-return resp, nil
-}
-
+[REMOVE LINES 627-644 ENTIRELY: This is the body and closing brace of the unused doRequestWithRetry function.]
 // recordFailure increments the failure count for a peer and applies backoff if needed
 func (c *Client) recordFailure(peerURL string) {
 	c.failuresMu.Lock()
