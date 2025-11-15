@@ -282,7 +282,7 @@ export function JobDetailsView() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
-                      <div className="wrap-break-words max-w-3xl">
+                      <div className="break-all max-w-3xl">
                         {log.message}
                       </div>
                     </td>
