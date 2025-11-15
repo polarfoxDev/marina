@@ -174,21 +174,22 @@ func main() {
 				r.Get("/job/{id}", handleGetJobLogs(logger, meshClient))
 			})
 		})
+	})
 
-		// Serve static files for React app (will be added later)
-		staticDir := envDefault("STATIC_DIR", "/app/web")
-		indexPath := filepath.Join(staticDir, "index.html")
+	// Serve static files for React app (no auth required - login page needs to be accessible)
+	staticDir := envDefault("STATIC_DIR", "/app/web")
+	indexPath := filepath.Join(staticDir, "index.html")
 
-		// Only use file server if index.html exists
-		if _, err := os.Stat(indexPath); err == nil {
-			log.Printf("Serving static files from %s", staticDir)
-			fileServer(r, "/", http.Dir(staticDir))
-		} else {
-			// Placeholder for when no frontend is built yet
-			log.Printf("No frontend found at %s, serving placeholder", indexPath)
-			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "text/html")
-				fmt.Fprintf(w, `<!DOCTYPE html>
+	// Only use file server if index.html exists
+	if _, err := os.Stat(indexPath); err == nil {
+		log.Printf("Serving static files from %s", staticDir)
+		fileServer(r, "/", http.Dir(staticDir))
+	} else {
+		// Placeholder for when no frontend is built yet
+		log.Printf("No frontend found at %s, serving placeholder", indexPath)
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head><title>Marina Status</title></head>
 <body>
@@ -203,9 +204,8 @@ func main() {
 	</ul>
 </body>
 </html>`)
-			})
-		}
-	})
+		})
+	}
 
 	// Start server
 	port := envDefault("API_PORT", "8080")
