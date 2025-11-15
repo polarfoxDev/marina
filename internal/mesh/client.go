@@ -159,6 +159,8 @@ func (c *Client) fetchSchedulesFromPeer(ctx context.Context, peerURL string) Pee
 		result.Error = fmt.Errorf("create request: %w", err)
 		return result
 	}
+	// Mark this as a mesh request to prevent recursion
+	req.Header.Set("X-Marina-Mesh", "true")
 	c.addAuthHeader(req)
 
 	resp, err := c.httpClient.Do(req)
@@ -187,6 +189,8 @@ func (c *Client) fetchSchedulesFromPeer(ctx context.Context, peerURL string) Pee
 			result.Error = fmt.Errorf("create retry request: %w", err)
 			return result
 		}
+		// Mark this as a mesh request to prevent recursion
+		req2.Header.Set("X-Marina-Mesh", "true")
 		c.addAuthHeader(req2) // This will get a fresh token
 		
 		resp, err = c.httpClient.Do(req2)
@@ -357,6 +361,8 @@ func (c *Client) fetchJobStatusFromPeer(ctx context.Context, peerURL, instanceID
 		result.Error = fmt.Errorf("create request: %w", err)
 		return result
 	}
+	// Mark this as a mesh request to prevent recursion
+	req.Header.Set("X-Marina-Mesh", "true")
 	c.addAuthHeader(req)
 
 	resp, err := c.httpClient.Do(req)
@@ -383,6 +389,8 @@ func (c *Client) fetchJobStatusFromPeer(ctx context.Context, peerURL, instanceID
 			result.Error = fmt.Errorf("create retry request: %w", err)
 			return result
 		}
+		// Mark this as a mesh request to prevent recursion
+		req2.Header.Set("X-Marina-Mesh", "true")
 		c.addAuthHeader(req2)
 		
 		resp, err = c.httpClient.Do(req2)

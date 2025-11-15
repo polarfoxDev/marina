@@ -241,6 +241,26 @@ func handleGetSchedules(db *database.DB, meshClient *mesh.Client, nodeName strin
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.Background()
 		
+		// Check if this is a request from another Marina mesh node (prevent recursion)
+		// Marina mesh clients set X-Marina-Mesh header
+		if r.Header.Get("X-Marina-Mesh") == "true" {
+			// This is a mesh peer requesting data - only return local data
+			schedules, err := db.GetAllSchedules(ctx)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get schedules: %v", err), http.StatusInternalServerError)
+				return
+			}
+			
+			// Add node name to local schedules
+			for _, schedule := range schedules {
+				schedule.NodeName = nodeName
+			}
+			
+			respondJSON(w, schedules)
+			return
+		}
+		
+		// This is a regular user request - return local + mesh data
 		// Fetch local schedules
 		schedules, err := db.GetAllSchedules(ctx)
 		if err != nil {
@@ -288,6 +308,26 @@ func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName strin
 
 		ctx := context.Background()
 		
+		// Check if this is a request from another Marina mesh node (prevent recursion)
+		if r.Header.Get("X-Marina-Mesh") == "true" {
+			// This is a mesh peer requesting data - only return local data
+			statuses, err := db.GetJobStatus(ctx, instanceID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get statuses: %v", err), http.StatusInternalServerError)
+				return
+			}
+			
+			// Add node information to local statuses
+			for i := range statuses {
+				statuses[i].NodeName = nodeName
+				statuses[i].NodeURL = "" // Empty for local node
+			}
+			
+			respondJSON(w, statuses)
+			return
+		}
+		
+		// This is a regular user request - return local + mesh data
 		// Fetch local statuses
 		statuses, err := db.GetJobStatus(ctx, instanceID)
 		if err != nil {

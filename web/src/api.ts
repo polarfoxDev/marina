@@ -16,13 +16,26 @@ class ApiError extends Error {
   }
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
+  // Add auth token from localStorage if available
+  const token = localStorage.getItem('marina_auth_token');
+  const headers = new Headers(options.headers || {});
+  
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
 
   if (!response.ok) {
-    // If we get 401 Unauthorized, reload the page to trigger re-authentication
-    // But only if this is an auth endpoint or we haven't reloaded recently
+    // If we get 401 Unauthorized, clear token and reload to trigger re-authentication
     if (response.status === 401) {
+      // Clear the invalid token
+      localStorage.removeItem('marina_auth_token');
+      
       // Check if we recently reloaded to prevent reload loops
       const lastReload = sessionStorage.getItem('lastAuthReload');
       const now = Date.now();
@@ -41,6 +54,16 @@ async function fetchJson<T>(url: string): Promise<T> {
   }
 
   return response.json();
+}
+
+async function postJson<T>(url: string, body: any): Promise<T> {
+  return fetchJson<T>(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
 }
 
 export const api = {
@@ -64,5 +87,18 @@ export const api = {
       url += `&nodeUrl=${encodeURIComponent(nodeUrl)}`;
     }
     return fetchJson<LogEntry[]>(url);
+  },
+  
+  async login(password: string): Promise<{ token: string }> {
+    const result = await postJson<{ token: string }>(`${API_BASE}/auth/login`, { password });
+    // Store token in localStorage
+    localStorage.setItem('marina_auth_token', result.token);
+    return result;
+  },
+  
+  async logout(): Promise<void> {
+    // Clear token from localStorage
+    localStorage.removeItem('marina_auth_token');
+    await postJson<void>(`${API_BASE}/auth/logout`, {});
   },
 };

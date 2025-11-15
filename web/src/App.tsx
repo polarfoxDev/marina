@@ -31,7 +31,8 @@ function App() {
 
   async function handleLogout() {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      const { api } = await import("./api");
+      await api.logout();
       setAuthenticated(false);
     } catch (err) {
       console.error("Logout failed:", err);

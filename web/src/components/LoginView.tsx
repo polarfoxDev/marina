@@ -17,26 +17,10 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ password }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Login failed");
-      }
-
-      const data = await response.json();
-      if (data.success) {
-        onLoginSuccess();
-        navigate("/");
-      } else {
-        setError("Login failed");
-      }
+      // Use the api.login method which stores token in localStorage
+      await import("../api").then(({ api }) => api.login(password));
+      onLoginSuccess();
+      navigate("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

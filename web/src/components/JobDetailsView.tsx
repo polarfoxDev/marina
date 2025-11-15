@@ -46,19 +46,19 @@ export function JobDetailsView() {
     }
   }, [jobId, instanceId]);
 
-  const loadLogs = useCallback(async () => {
+  const loadLogs = useCallback(async (nodeUrl?: string) => {
     if (!jobId) return;
 
     try {
       const numericJobId = parseInt(jobId, 10);
       // Pass nodeUrl if the job is from a remote node
-      const logsData = await api.getJobLogs(numericJobId, 5000, job?.nodeUrl);
+      const logsData = await api.getJobLogs(numericJobId, 5000, nodeUrl);
       setLogs(logsData);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load logs");
     }
-  }, [jobId, job]);
+  }, [jobId]);
 
   const applyFilters = useCallback(() => {
     let filtered = [...logs];
@@ -79,9 +79,15 @@ export function JobDetailsView() {
   useEffect(() => {
     if (jobId) {
       loadJobStatus();
-      loadLogs();
     }
-  }, [jobId, loadJobStatus, loadLogs]);
+  }, [jobId, loadJobStatus]);
+  
+  // Load logs when job changes (separate effect to pass nodeUrl)
+  useEffect(() => {
+    if (jobId && job) {
+      loadLogs(job.nodeUrl);
+    }
+  }, [jobId, job?.nodeUrl, loadLogs]);
 
   // Poll job status every 5 seconds when job is in progress
   useEffect(() => {
@@ -96,15 +102,15 @@ export function JobDetailsView() {
 
   // Separate effect for log polling when job is in progress
   useEffect(() => {
-    if (!jobId || job?.status !== "in_progress") return;
+    if (!jobId || !job || job.status !== "in_progress") return;
 
     // Poll logs every 1 second when job is in progress
     const logsInterval = setInterval(() => {
-      loadLogs();
+      loadLogs(job.nodeUrl);
     }, 1000);
 
     return () => clearInterval(logsInterval);
-  }, [jobId, job?.status, loadLogs]);
+  }, [jobId, job?.status, job?.nodeUrl, loadLogs]);
 
   useEffect(() => {
     applyFilters();
