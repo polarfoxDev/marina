@@ -47,8 +47,8 @@ curl -s http://localhost:8080/api/status/local-backup | jq
 # Get logs for a specific job (replace 1 with actual job ID)
 curl -s http://localhost:8080/api/logs/job/1 | jq
 
-# Monitor for errors (assuming local-backup instance)
-watch -n 5 'curl -s http://localhost:8080/api/status/local-backup | jq "[.[] | select(.status == \"error\")]"'
+# Monitor for failures (assuming local-backup instance)
+watch -n 5 'curl -s http://localhost:8080/api/status/local-backup | jq "[.[] | select(.status == \"failed\")]"'
 ```
 
 ## Next Steps

@@ -13,10 +13,6 @@ services:
     environment:
       CONFIG_FILE: /app/config.yml
       API_PORT: 8080
-      # For testing, you can set faster intervals
-      DISCOVERY_INTERVAL: 60s
-      STATUS_CLEANUP_INTERVAL: 10m
-      STATUS_CLEANUP_AGE: 20m
     networks:
       - test-net
 

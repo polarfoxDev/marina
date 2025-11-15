@@ -81,6 +81,10 @@ func InitDB(dbPath string) (*DB, error) {
 		return &DB{db: db}, nil
 	}
 
+	// Ensure any open connection is closed before returning error
+	if db != nil {
+		db.Close()
+	}
 	return nil, fmt.Errorf("failed to initialize database after %d attempts: %w", maxRetries, err)
 }
 
@@ -303,6 +307,9 @@ func (d *DB) GetAllSchedules(ctx context.Context) ([]*model.InstanceBackupSchedu
 			&schedule.CreatedAt,
 			&schedule.UpdatedAt,
 		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan backup schedule: %w", err)
+		}
 		if targetsCSV == "" {
 			schedule.TargetIDs = []string{}
 		} else {
@@ -314,9 +321,6 @@ func (d *DB) GetAllSchedules(ctx context.Context) ([]*model.InstanceBackupSchedu
 					schedule.TargetIDs = append(schedule.TargetIDs, p)
 				}
 			}
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan backup schedule: %w", err)
 		}
 		schedule.Retention = retention
 		schedules = append(schedules, schedule)
