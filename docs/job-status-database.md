@@ -30,9 +30,9 @@ API_PORT=8080 marina-api
 
 ### Basic Endpoints
 
-- `GET /api/status` - All job statuses
-- `GET /api/status/instance/{id}` - Jobs for specific instance
-- `GET /api/logs` - Query logs with filters
+- `GET /api/status/{instanceID}` - Jobs for specific instance
+- `GET /api/logs/job/{id}` - Logs for a specific job
+- `GET /api/schedules` - All backup schedules
 
 See API code for complete endpoint documentation.
 

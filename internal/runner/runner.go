@@ -99,7 +99,8 @@ func (r *Runner) ScheduleBackup(backupSchedule model.InstanceBackupSchedule) err
 	nextRunTime := r.getNextRunTime(backupSchedule.InstanceID)
 	// Update next run time in DB
 	if r.DB != nil {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		if err := r.DB.UpdateNextRunTime(ctx, string(backupSchedule.InstanceID), nextRunTime); err != nil {
 			r.Logger.Warn("failed to update next run time for instance %s: %v", backupSchedule.InstanceID, err)
 		}
@@ -115,11 +116,11 @@ func (r *Runner) RemoveJob(instanceID model.InstanceID) {
 		delete(r.scheduledJobs, instanceID)
 
 		if r.DB != nil {
-			ctx := context.Background()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 			if err := r.DB.ArchiveInstance(ctx, string(instanceID)); err != nil {
 				r.Logger.Warn("failed to archive job status for instance %s: %v", instanceID, err)
 			}
-
 		}
 
 		delete(r.jobs, instanceID)
@@ -136,8 +137,11 @@ func (r *Runner) SyncBackups(newBackups []model.InstanceBackupSchedule) {
 	}
 
 	if r.DB != nil {
-		ctx := context.Background()
-		r.DB.AddOrUpdateSchedules(ctx, newSet)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := r.DB.AddOrUpdateSchedules(ctx, newSet); err != nil {
+			r.Logger.Warn("failed to update schedules: %v", err)
+		}
 	}
 
 	// Remove jobs that no longer exist
@@ -252,10 +256,11 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	}
 
 	nextRunTime := r.getNextRunTime(job.InstanceID)
-	// Update next run time in DB
+	// Update next run time in DB (best effort - don't block backup on DB issues)
 	if r.DB != nil {
-		ctx := context.Background()
-		if err := r.DB.UpdateNextRunTime(ctx, string(job.InstanceID), nextRunTime); err != nil {
+		dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.DB.UpdateNextRunTime(dbCtx, string(job.InstanceID), nextRunTime); err != nil {
 			r.Logger.Warn("failed to update next run time for instance %s: %v", job.InstanceID, err)
 		}
 	}
@@ -271,7 +276,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		return err
 	}
 
-	// Generate single timestamp for this instance backup run
+	// Use instance start time as timestamp for all staged paths
 	timestamp := startTime.Format("20060102-150405")
 
 	// Collect all staging paths from all targets
@@ -287,7 +292,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		}
 	}()
 
-	// Track failed targets and warnings
+	// Track failed targets
 	var failedTargets []string
 
 	// Process each target and collect staged paths
@@ -333,12 +338,14 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	}
 	// Check if all targets failed
 	if len(allPaths) == 0 {
-		r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
+		if err := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
 			status.Status = model.StatusFailed
 			now := time.Now()
 			status.LastCompletedAt = &now
 			status.LastTargetsSuccessful = 0
-		})
+		}); err != nil {
+			r.Logger.Warn("failed to update job status: %v", err)
+		}
 
 		if len(failedTargets) > 0 {
 			return fmt.Errorf("all targets failed: %v", failedTargets)
@@ -357,14 +364,17 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	allExcludes = deduplicate(allExcludes)
 
 	// Perform single backup with all collected paths
+	instanceLogger.Info("backing up %d paths to instance %s", len(allPaths), job.InstanceID)
 	_, err := dest.Backup(ctx, allPaths, allTags, allExcludes)
 	if err != nil {
-		r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
+		if updateErr := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
 			status.Status = model.StatusFailed
 			now := time.Now()
 			status.LastCompletedAt = &now
 			status.LastTargetsSuccessful = 0
-		})
+		}); updateErr != nil {
+			r.Logger.Warn("failed to update job status: %v", updateErr)
+		}
 		return fmt.Errorf("backup failed: %w", err)
 	}
 
@@ -372,7 +382,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	_, _ = dest.DeleteOldSnapshots(ctx, job.Retention.KeepDaily, job.Retention.KeepWeekly, job.Retention.KeepMonthly)
 
 	// Update job status to success/partial success
-	r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
+	if err := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
 		status.Status = model.StatusSuccess
 		if len(failedTargets) > 0 {
 			status.Status = model.StatusPartialSuccess
@@ -380,7 +390,9 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		now := time.Now()
 		status.LastCompletedAt = &now
 		status.LastTargetsSuccessful = len(job.Targets) - len(failedTargets)
-	})
+	}); err != nil {
+		r.Logger.Warn("failed to update job status: %v", err)
+	}
 
 	return nil
 }
