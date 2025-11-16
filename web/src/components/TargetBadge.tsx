@@ -28,15 +28,13 @@ export function TargetBadge({ targetId }: TargetBadgeProps) {
 
   return (
     <span
-      className="inline-flex items-center rounded-full overflow-hidden border border-gray-300"
+      className="inline-flex cursor-default items-center rounded-full overflow-hidden border border-gray-300"
       title={
         parsed.id ? `${parsed.type}:${parsed.name}:${parsed.id}` : targetId
       }
     >
       <span
-        className={`px-2 py-0.5 text-xs font-medium ${
-          typeColors[parsed.type]
-        }`}
+        className={`px-2 py-0.5 text-xs font-medium ${typeColors[parsed.type]}`}
       >
         {typeLabel[parsed.type]}
       </span>
