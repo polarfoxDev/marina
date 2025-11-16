@@ -1,6 +1,74 @@
 # Marina Web Interface
 
-The Marina API server is now integrated into the main Docker container and automatically runs alongside the backup manager. It provides a REST API for querying backup status and is ready to serve a React frontend.
+The Marina web interface is a React-based dashboard for monitoring backup status across single or multiple Marina instances. The API server is integrated into the main Docker container and automatically runs alongside the backup manager.
+
+## Features
+
+- **Schedules Overview**: View all backup schedules across all instances
+- **Job Status View**: Monitor backup job execution and results
+- **Job Details & Logs**: Detailed view with log filtering and search
+- **Mesh Mode**: Unified monitoring across multiple Marina nodes
+- **Authentication**: Optional password protection for the dashboard
+
+## Web Interface
+
+The web interface is built with React and TypeScript and is located in the `web/` directory.
+
+### Development
+
+```bash
+cd web
+
+# Install dependencies
+pnpm install
+
+# Start dev server (proxies API requests to localhost:8080)
+pnpm run dev
+
+# Build for production
+pnpm run build
+```
+
+### Production Build
+
+The web interface is automatically built and included in the Docker image:
+
+```dockerfile
+# Frontend build stage
+FROM node:20-alpine AS frontend
+WORKDIR /app
+COPY web/package*.json web/pnpm-lock.yaml ./
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
+COPY web/ ./
+RUN pnpm run build
+
+# Copied into final image
+COPY --from=frontend /app/dist /app/web
+```
+
+## Mesh Mode
+
+When Marina is configured with mesh networking, the dashboard automatically:
+
+- Fetches schedules and status from all configured peer nodes
+- Groups data by node name for easy organization
+- Shows connectivity status and peer count
+- Uses shared authentication across all nodes
+
+### Mesh Configuration
+
+In your `config.yml`:
+
+```yaml
+mesh:
+  nodeName: production-server-1
+  authPassword: your-secure-password
+  peers:
+    - http://marina-node2:8080
+    - http://marina-node3:8080
+```
+
+All nodes in the mesh should use the same `authPassword` for authentication.
 
 ## API Server
 
@@ -21,19 +89,26 @@ STATIC_DIR=/app/web                     # Directory for React app build
 #### Health & Status
 
 - `GET /api/health` - Health check
-- `GET /api/status/{instanceID}` - Statuses for specific instance
+- `GET /api/schedules` - All schedules (includes mesh peers)
+- `GET /api/status/{instanceID}` - Job statuses for specific instance
 
 #### Logs
 
 - `GET /api/logs/job/{id}` - Logs for a specific job
 
-#### Frontend (Coming Soon)
+#### Authentication
+
+- `POST /api/auth/login` - Login with password (returns JWT token)
+- Protected routes require `Authorization: Bearer <token>` header
+
+#### Frontend
 
 - `GET /` - React app (serves from `/app/web`)
+- `GET /*` - SPA routing (all non-API routes serve `index.html`)
 
 ## Docker Setup
 
-The container now runs both services via an entrypoint script:
+The container runs both services via an entrypoint script:
 
 ```yaml
 services:
@@ -50,7 +125,36 @@ services:
       CONFIG_FILE: /app/config.yml
 ```
 
+## Docker Setup
+
+The container runs both services via an entrypoint script:
+
+```yaml
+services:
+  marina:
+    image: ghcr.io/polarfoxdev/marina:latest
+    ports:
+      - "8080:8080"  # Web interface and API
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config.yml:/app/config.yml:ro
+      - marina-data:/var/lib/marina  # For marina.db
+    environment:
+      API_PORT: 8080
+      CONFIG_FILE: /app/config.yml
+```
+
 Both the backup manager and API server start automatically and shut down gracefully together.
+
+## Access the Dashboard
+
+Open your browser to:
+
+```text
+http://localhost:8080
+```
+
+If authentication is configured (via `mesh.authPassword` in config.yml), you'll be prompted to log in.
 
 ## Testing the API
 
@@ -58,79 +162,19 @@ Both the backup manager and API server start automatically and shut down gracefu
 # Check health
 curl http://localhost:8080/api/health
 
+# Get all schedules (includes mesh peers if configured)
+curl http://localhost:8080/api/schedules | jq
+
 # Get job statuses for a specific instance
-curl http://localhost:8080/api/status/hetzner-s3 | jq
+curl http://localhost:8080/api/status/local-backup | jq
 
-# Get logs for a specific job (replace 1 with actual job ID)
+# Get logs for a specific job
 curl http://localhost:8080/api/logs/job/1 | jq
-```
 
-## Adding a React Frontend
-
-The API is ready to serve a React app. To add your frontend:
-
-1. **Build your React app** and place the build output in the container at `/app/web/`
-
-2. **Update Dockerfile** to copy your build:
-  
-   ```dockerfile
-   # Add before the final ENTRYPOINT
-   COPY --from=frontend-build /app/build /app/web
-   ```
-
-3. **The API server will automatically**:
-   - Serve static files from `/app/web`
-   - Handle SPA routing (all non-API routes serve `index.html`)
-   - Apply CORS headers for development
-
-### Example React Setup
-
-Create a `web/` directory in the Marina repo:
-
-```bash
-npx create-react-app web
-cd web
-npm install axios recharts
-```
-
-Add proxy to `web/package.json` for development:
-
-```json
-{
-  "proxy": "http://localhost:8080"
-}
-```
-
-Build and add to Docker:
-
-```dockerfile
-# In Dockerfile, add a frontend build stage
-FROM node:20-alpine AS frontend
-WORKDIR /app
-COPY web/package*.json ./
-RUN npm ci
-COPY web/ ./
-RUN npm run build
-
-# Then in the runner stage, copy the build
-COPY --from=frontend /app/build /app/web
-```
-
-### API Client Example
-
-```typescript
-// api/marina.ts
-import axios from 'axios';
-
-const api = axios.create({
-  baseURL: '/api'
-});
-
-export const getInstanceStatus = (instanceId: string) =>
-  api.get(`/status/${instanceId}`).then(res => res.data);
-
-export const getJobLogs = (jobId: number) =>
-  api.get(`/logs/job/${jobId}`).then(res => res.data);
+# Login (if auth is enabled)
+curl -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"password":"your-password"}'
 ```
 
 ## Architecture
@@ -146,8 +190,8 @@ export const getJobLogs = (jobId: number) =>
 │  │ Backup Jobs  │  │  Port 8080  │  │
 │  │ Discovery    │  │             │  │
 │  │ Scheduling   │  │  REST API   │  │
-│  └──────┬───────┘  └──────┬──────┘  │
-│         │                 │         │
+│  └──────┬───────┘  │  + Web UI   │  │
+│         │          └──────┬──────┘  │
 │         └────┬────────────┘         │
 │              ▼                      │
 │     ┌────────────────┐              │
@@ -160,6 +204,12 @@ export const getJobLogs = (jobId: number) =>
             ▼
       [React App]
     (Browser Client)
+       
+    ┌────────────────┐
+    │  Mesh Peers    │
+    │  (Optional)    │
+    │  Node 2, 3...  │
+    └────────────────┘
 ```
 
 ## CORS Configuration
@@ -171,14 +221,3 @@ The API server includes CORS middleware configured for local development:
 - Credentials: Enabled
 
 For production, customize CORS settings in `cmd/api/main.go`.
-
-## Future Enhancements
-
-Planned features for the web interface:
-
-- Real-time backup progress via WebSockets
-- Backup history and snapshot browser
-- Manual backup triggers
-- Configuration editor
-- Alert management
-- Restore operations UI

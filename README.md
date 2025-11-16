@@ -13,7 +13,6 @@ Marina is a backup orchestrator that discovers and backs up Docker volumes and d
 Planned features:
 
 - Recovery operations from Restic snapshots
-- Multi-node federation (mesh mode)
 
 ## Features
 
@@ -25,13 +24,15 @@ Planned features:
 - **Flexible scheduling**: Per-destination cron schedules
 - **Retention policies**: Configurable daily/weekly/monthly retention per target
 - **Pre/post hooks**: Execute commands before and after backups
-- **Web API**: Query backup status and logs via REST API
+- **Web Interface**: React-based dashboard for monitoring backup status and logs
+- **Mesh Mode**: Connect multiple Marina instances for unified monitoring across servers
+- **REST API**: Query backup status, logs, and schedules programmatically
 
 ## Quick Start
 
 ### 1. Create a config file
 
-Create a `config.yml` file with your backup destinations:
+Create a `config.yml` file with your backup instances:
 
 ```yaml
 instances:
@@ -44,6 +45,14 @@ instances:
 
 # Optional global defaults
 stopAttached: true  # Stop containers when backing up volumes
+
+# Optional mesh configuration for multi-node setups
+mesh:
+  nodeName: ${NODE_NAME}
+  authPassword: ${MARINA_AUTH_PASSWORD}
+  peers:
+    - http://marina-node2:8080
+    - http://marina-node3:8080
 ```
 
 See [config.example.yml](config.example.yml) for more examples including S3 configuration.
@@ -112,17 +121,27 @@ Marina will automatically discover and schedule backups for any volumes or conta
 
 ### 4. Monitor backups
 
-Check the logs:
+Access the web interface:
+
+```bash
+# Open in browser
+open http://localhost:8080
+```
+
+Or check the logs:
 
 ```bash
 docker-compose logs -f marina
 ```
 
-Query the API for status:
+Or query the API directly:
 
 ```bash
 # Health check
 curl http://localhost:8080/api/health
+
+# Get all schedules (includes mesh peers if configured)
+curl http://localhost:8080/api/schedules | jq
 
 # Get backup status for an instance
 curl http://localhost:8080/api/status/local-backup | jq
@@ -167,17 +186,17 @@ Marina uses labels with the namespace `dev.polarfox.marina.*` to configure backu
 
 Marina uses a two-tier configuration approach:
 
-1. **config.yml**: Defines backup destinations (repositories, credentials, schedules)
+1. **config.yml**: Defines backup instances (repositories, credentials, schedules) and optional mesh networking
 2. **Docker labels**: Define what to backup and target-specific settings
 
-See [config.example.yml](config.example.yml) for a complete configuration example and [docker-compose.example.yml](docker-compose.example.yml) for a full deployment example.
+See [config.example.yml](config.example.yml) for a complete configuration example including mesh mode setup and [docker-compose.example.yml](docker-compose.example.yml) for a full deployment example.
 
 ## Documentation
 
 - [Dynamic Discovery](docs/dynamic-discovery.md) - How Marina detects changes automatically
 - [Architecture](docs/architecture-diagram.md) - System design and data flow
-- [API Quickstart](QUICKSTART-API.md) - Working with the REST API
-- [Web Interface](docs/web-interface.md) - Status dashboard (planned)
+- [Web Interface](docs/web-interface.md) - React dashboard and mesh mode
+- [Logging](docs/logging.md) - Job logging and status tracking
 
 ## Requirements
 

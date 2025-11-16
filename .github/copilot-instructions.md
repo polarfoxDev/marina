@@ -28,7 +28,7 @@ Marina uses a two-tier configuration approach:
 **config.yml structure** (supports environment variable expansion):
 
 ```yaml
-destinations:
+instances:
   - id: hetzner-s3
     repository: s3:https://fsn1.your-objectstorage.com/bucket
     schedule: "0 2 * * *" # Cron schedule for this instance's backups
@@ -46,6 +46,14 @@ destinations:
 # Global defaults that can be overridden by instance config or Docker labels
 retention: "14d:8w:12m" # Format: daily:weekly:monthly
 stopAttached: true # Stop containers when backing up volumes
+
+# Optional mesh configuration for multi-node federation
+mesh:
+  nodeName: ${NODE_NAME}  # Optional custom node name
+  authPassword: ${MARINA_AUTH_PASSWORD}  # Password for mesh auth and dashboard
+  peers:
+    - http://marina-node2:8080
+    - http://marina-node3:8080
 ```
 
 Environment variables in config.yml are expanded using `${VAR_NAME}` or `$VAR_NAME` syntax.
@@ -161,15 +169,22 @@ targets, _ := disc.Discover(ctx)
 - **Interfaces**: `BackupDestination` could support backends beyond Restic, but currently only Restic impl exists
 - **Error wrapping**: Use `fmt.Errorf("context: %w", err)` for wrappable errors throughout
 - **Logging**: Runner accepts `Logf func(string, ...any)` for structured logging flexibility
-- **No tests**: Project currently has no test files; consider adding for `helpers/` parsing logic
-- **Config format**: `config.yml` defines backup destinations (mapped by ID); destinations include repository URL and environment variables (credentials, etc.)
-- **Configuration philosophy**: Backup destinations in config.yml, all other configuration (schedule, retention, hooks) via Docker labels
+- **Tests**: Project has unit tests in `*_test.go` files and integration tests in `tests/integration/`
+- **Config format**: `config.yml` defines backup instances (mapped by ID); instances include repository URL and environment variables (credentials, etc.)
+- **Configuration philosophy**: Backup instances in config.yml, all other configuration (schedule, retention, hooks) via Docker labels or config.yml
 
 ## Planned Features
 
 - **Recovery**: Restore operations from Restic snapshots
-- **Web Interface**: Status dashboard and log viewer for backup jobs
-- **Mesh Mode**: Federation of multiple Marina instances across servers with unified web interface
+
+## Implemented Features
+
+- **Web Interface**: React-based dashboard for monitoring backup status and logs (in `web/` directory)
+- **Mesh Mode**: Multi-node federation allowing unified monitoring across multiple Marina instances
+  - Configured via `mesh` section in config.yml
+  - Mesh client in `internal/mesh/client.go` fetches data from peer nodes
+  - Web interface automatically displays data from all connected nodes
+  - Authentication via shared password across mesh nodes
 
 ## Docker Compose Example
 
