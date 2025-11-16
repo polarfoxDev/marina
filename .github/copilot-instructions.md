@@ -61,7 +61,7 @@ Environment variables in config.yml are expanded using `${VAR_NAME}` or `$VAR_NA
 **Configuration hierarchy**: Instance config > Global config > Docker labels > Hardcoded defaults
 
 - Schedule: Required per-instance in config.yml
-- Retention: Instance-specific (optional) > Global `retention` > Label > Hardcoded default "7d:4w:6m"
+- Retention: Instance-specific (optional) > Global `retention` > Hardcoded default "7d:4w:6m"
 - StopAttached: Global `stopAttached` > Label > Hardcoded default false
 
 ### Label-Driven Configuration
@@ -73,7 +73,6 @@ All backup configuration lives in Docker labels with namespace `dev.polarfox.mar
 ```yaml
 dev.polarfox.marina.enabled: "true"
 dev.polarfox.marina.instanceID: "hetzner-s3" # Maps to config.yml instance (schedule comes from there)
-dev.polarfox.marina.retention: "7d:14w:6m" # Optional: daily:weekly:monthly (overrides global/instance retention)
 dev.polarfox.marina.paths: "/" # Relative to volume/_data
 dev.polarfox.marina.stopAttached: "true" # Stop containers using volume
 ```
@@ -171,7 +170,8 @@ targets, _ := disc.Discover(ctx)
 - **Logging**: Runner accepts `Logf func(string, ...any)` for structured logging flexibility
 - **Tests**: Project has unit tests in `*_test.go` files and integration tests in `tests/integration/`
 - **Config format**: `config.yml` defines backup instances (mapped by ID); instances include repository URL and environment variables (credentials, etc.)
-- **Configuration philosophy**: Backup instances in config.yml, all other configuration (schedule, retention, hooks) via Docker labels or config.yml
+- **Configuration philosophy**: Backup instances (repository, schedule, retention) in config.yml; target selection and hooks via Docker labels
+- **CHANGELOG**: After making changes, add entries to the `## [Unreleased]` section in `CHANGELOG.md` following Keep a Changelog format (Added/Changed/Deprecated/Removed/Fixed/Security)
 
 ## Planned Features
 

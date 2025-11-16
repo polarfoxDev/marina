@@ -3,7 +3,6 @@ package labels
 const (
 	LEnabled    = "dev.polarfox.marina.enabled"
 	LInstanceID = "dev.polarfox.marina.instanceID"
-	LRetention  = "dev.polarfox.marina.retention"
 	LExclude    = "dev.polarfox.marina.exclude"
 	LTags       = "dev.polarfox.marina.tags"
 

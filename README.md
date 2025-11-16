@@ -22,7 +22,7 @@ Planned features:
 - **Volume backups**: Back up Docker volumes with optional container stop/start
 - **Dynamic discovery**: Automatically detects new/removed containers and volumes
 - **Flexible scheduling**: Per-destination cron schedules
-- **Retention policies**: Configurable daily/weekly/monthly retention per target
+- **Retention policies**: Configurable daily/weekly/monthly retention per instance
 - **Pre/post hooks**: Execute commands before and after backups
 - **Web Interface**: React-based dashboard for monitoring backup status and logs
 - **Mesh Mode**: Connect multiple Marina instances for unified monitoring across servers
@@ -89,7 +89,6 @@ services:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.db: "postgres"
       dev.polarfox.marina.instanceID: "local-backup"
-      dev.polarfox.marina.retention: "7d:4w:6m"
 
   # Example: Application with volume backup
   app:
@@ -160,7 +159,6 @@ Marina uses labels with the namespace `dev.polarfox.marina.*` to configure backu
 | -------------------------------- | -------- | ------------------------------------------------- | ----------------------- |
 | `dev.polarfox.marina.enabled`    | Yes      | Enable backup for this target                     | `"true"`                |
 | `dev.polarfox.marina.instanceID` | Yes      | Which backup destination to use (from config.yml) | `"local-backup"`        |
-| `dev.polarfox.marina.retention`  | No       | Retention policy (daily:weekly:monthly)           | `"7d:4w:6m"`            |
 | `dev.polarfox.marina.tags`       | No       | Comma-separated tags for Restic                   | `"env:prod,service:db"` |
 | `dev.polarfox.marina.pre`        | No       | Command to run before backup                      | `"echo Starting"`       |
 | `dev.polarfox.marina.post`       | No       | Command to run after backup                       | `"echo Done"`           |

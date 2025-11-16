@@ -19,7 +19,6 @@ type BackupTarget struct {
 	Name       string     // human label (volume name or container name)
 	Type       TargetType // volume|db
 	InstanceID InstanceID // e.g. "hetzner-s3"
-	Retention  Retention
 	Exclude    []string
 	Tags       []string
 	PreHook    string // command inside app/DB container (optional)
@@ -47,11 +46,11 @@ type InstanceBackupSchedule struct {
 
 type InstanceBackupScheduleView struct {
 	InstanceID           InstanceID      `json:"instanceId"`
-	NodeName             string          `json:"nodeName,omitempty"`   // Name of the node (for mesh mode)
-	ScheduleCron         string          `json:"scheduleCron"`         // cron schedule from config
-	NextRunAt            *time.Time      `json:"nextRunAt"`            // next scheduled run (nil if not scheduled)
+	NodeName             string          `json:"nodeName,omitempty"` // Name of the node (for mesh mode)
+	ScheduleCron         string          `json:"scheduleCron"`       // cron schedule from config
+	NextRunAt            *time.Time      `json:"nextRunAt"`          // next scheduled run (nil if not scheduled)
 	TargetIDs            []string        `json:"targetIds"`
-	Retention            Retention       `json:"retention"`            // Common retention policy (from first target or config default)
+	Retention            Retention       `json:"retention"` // Common retention policy (from first target or config default)
 	CreatedAt            time.Time       `json:"createdAt"`
 	UpdatedAt            time.Time       `json:"updatedAt"`
 	LatestJobStatus      *JobStatusState `json:"latestJobStatus,omitempty"`      // status of most recent job
