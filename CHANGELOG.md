@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated web UI badge design: gray background now starts after type label (vol/db) for improved visual clarity
+
 ## [0.2.1] - 2025-11-16
 
 ### Removed
