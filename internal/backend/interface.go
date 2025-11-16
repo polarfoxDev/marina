@@ -28,4 +28,7 @@ type Backend interface {
 	GetType() BackendType
 
 	GetImage() string
+
+	// GetResticTimeout returns the configured timeout for this backend
+	GetResticTimeout() string
 }

@@ -48,6 +48,10 @@ func (b *CustomImageBackend) GetImage() string {
 	return b.CustomImage
 }
 
+func (b *CustomImageBackend) GetResticTimeout() string {
+	return "N/A" // Custom images don't have configurable timeouts
+}
+
 // Init initializes the backend by pulling the custom image if needed
 func (b *CustomImageBackend) Init(ctx context.Context) error {
 	// Always try to pull to get latest; fallback to local image if pull fails.

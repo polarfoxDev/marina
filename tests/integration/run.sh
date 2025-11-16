@@ -35,7 +35,7 @@ echo "[wait] Waiting for cron cycles to produce snapshots"
 sleep 90
 
 echo "[check] Listing snapshots"
-SNAP_TXT=$(docker exec -e RESTIC_PASSWORD="$RESTIC_PASSWORD" marina-it /usr/local/bin/restic -r /backup/repo snapshots || true)
+SNAP_TXT=$(docker exec -e RESTIC_PASSWORD="$RESTIC_PASSWORD" marina-it /usr/local/bin/restic -r /repo snapshots || true)
 if [[ -z "$SNAP_TXT" ]]; then
   echo "ERROR: restic snapshots produced no output" >&2
   docker compose -f "$COMPOSE_FILE" logs --no-color marina
@@ -52,7 +52,7 @@ fi
 # Simple presence checks by tag (runner passes tags from labels; here none custom so rely on paths)
 # We validate existence of dump files by grepping output of 'restic ls latest'
 FAIL=0
-LATEST_LS=$(docker exec -e RESTIC_PASSWORD="$RESTIC_PASSWORD" marina-it /usr/local/bin/restic -r /backup/repo ls latest)
+LATEST_LS=$(docker exec -e RESTIC_PASSWORD="$RESTIC_PASSWORD" marina-it /usr/local/bin/restic -r /repo ls latest)
 
 for KIND in "${REQ_DB_KINDS[@]}"; do
   # Check for database dumps under /dbs/<container-name>/ pattern

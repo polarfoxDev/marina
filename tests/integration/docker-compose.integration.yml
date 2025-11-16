@@ -14,7 +14,7 @@ services:
     volumes:
       - data:/var/lib/marina/
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./repo:/repo
+      - repo:/repo
       - ./staging:/backup
       - ./config.yml:/config/config.yml:ro
     depends_on:
@@ -80,6 +80,7 @@ services:
 
 volumes:
   data:
+  repo:
   testdata:
     labels:
       dev.polarfox.marina.enabled: "true"

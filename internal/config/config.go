@@ -10,10 +10,11 @@ import (
 
 // Config represents the complete configuration file
 type Config struct {
-	Instances    []BackupInstance `yaml:"instances"`
-	Retention    string           `yaml:"retention,omitempty"`    // Global default retention
-	StopAttached *bool            `yaml:"stopAttached,omitempty"` // Global default stopAttached
-	Mesh         *MeshConfig      `yaml:"mesh,omitempty"`         // Optional mesh configuration
+	Instances     []BackupInstance `yaml:"instances"`
+	Retention     string           `yaml:"retention,omitempty"`     // Global default retention
+	StopAttached  *bool            `yaml:"stopAttached,omitempty"`  // Global default stopAttached
+	ResticTimeout string           `yaml:"resticTimeout,omitempty"` // Global default timeout (e.g., "5m", "30s")
+	Mesh          *MeshConfig      `yaml:"mesh,omitempty"`          // Optional mesh configuration
 }
 
 // MeshConfig represents mesh networking configuration for connecting multiple Marina instances
@@ -25,12 +26,13 @@ type MeshConfig struct {
 
 // BackupInstance represents a backup instance configuration
 type BackupInstance struct {
-	ID          string            `yaml:"id"`
-	Repository  string            `yaml:"repository,omitempty"`  // Restic repository (not used if customImage is set)
-	CustomImage string            `yaml:"customImage,omitempty"` // Custom Docker image for backup (alternative to Restic)
-	Schedule    string            `yaml:"schedule"`              // Cron schedule for this instance's backups
-	Retention   string            `yaml:"retention,omitempty"`   // Optional: instance-specific retention (overrides global)
-	Env         map[string]string `yaml:"env,omitempty"`         // Environment variables passed to backend
+	ID            string            `yaml:"id"`
+	Repository    string            `yaml:"repository,omitempty"`    // Restic repository (not used if customImage is set)
+	CustomImage   string            `yaml:"customImage,omitempty"`   // Custom Docker image for backup (alternative to Restic)
+	Schedule      string            `yaml:"schedule"`                // Cron schedule for this instance's backups
+	Retention     string            `yaml:"retention,omitempty"`     // Optional: instance-specific retention (overrides global)
+	ResticTimeout string            `yaml:"resticTimeout,omitempty"` // Optional: instance-specific timeout (overrides global)
+	Env           map[string]string `yaml:"env,omitempty"`           // Environment variables passed to backend
 }
 
 // Load reads and parses the config file, expanding environment variables
@@ -51,6 +53,7 @@ func Load(path string) (*Config, error) {
 		cfg.Instances[i].CustomImage = expandEnv(cfg.Instances[i].CustomImage)
 		cfg.Instances[i].Schedule = expandEnv(cfg.Instances[i].Schedule)
 		cfg.Instances[i].Retention = expandEnv(cfg.Instances[i].Retention)
+		cfg.Instances[i].ResticTimeout = expandEnv(cfg.Instances[i].ResticTimeout)
 		for k, v := range cfg.Instances[i].Env {
 			cfg.Instances[i].Env[k] = expandEnv(v)
 		}

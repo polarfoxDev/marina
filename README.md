@@ -41,11 +41,13 @@ instances:
     repository: /mnt/backup/restic
     schedule: "0 2 * * *"  # Daily at 2 AM
     retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
+    resticTimeout: "10m"         # Optional: backup timeout for the restic command (default: 60m)
     env:
       RESTIC_PASSWORD: your-restic-password
 
 # Optional global defaults
 stopAttached: true  # Stop containers when backing up volumes
+resticTimeout: "60m"      # Global timeout for all restic commands (default: 60m)
 
 # Optional mesh configuration for multi-node setups
 mesh:
@@ -213,6 +215,25 @@ volumes:
 ```
 
 **Note**: Each custom backend container only sees its own instance's data at `/backup/{instanceID}` for security and isolation.
+
+### macOS Compatibility Note
+
+When using Restic on macOS with Docker Desktop, **use named Docker volumes instead of bind mounts** for the repository storage. Bind mounts on macOS can cause "bad file descriptor" errors during fsync operations due to filesystem compatibility issues between the Docker VM and macOS.
+
+**Recommended for macOS**:
+
+```yaml
+services:
+  marina:
+    volumes:
+      - restic-repo:/repo  # Named volume (recommended on macOS)
+      - ./staging:/backup  # Staging can still use bind mount
+
+volumes:
+  restic-repo:  # Let Docker manage the repository
+```
+
+**Linux users can safely use bind mounts** for both `/backup` and repository paths without these issues.
 
 ### Custom Backup Backends
 

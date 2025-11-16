@@ -3,6 +3,7 @@ instances:
     repository: s3:https://fsn1.your-objectstorage.com/restic12t681
     schedule: "0 2 * * *" # Daily at 2 AM - backs up all volumes/DBs assigned to this instance
     retention: "30d:12w:24m" # Optional: instance-specific retention (overrides global)
+    resticTimeout: "10m" # Optional: instance-specific timeout (overrides global, default 5m)
     env:
       AWS_ACCESS_KEY_ID: your-access-key
       AWS_SECRET_ACCESS_KEY: your-secret-key
@@ -26,6 +27,7 @@ instances:
   # - id: custom-backup
   #   customImage: marina/example-backup:latest # Custom Docker image
   #   schedule: "0 4 * * *" # Daily at 4 AM
+  #   timeout: "15m" # Custom images may need different timeouts
   #   env:
   #     BACKUP_ENDPOINT: https://backup.example.com
   #     BACKUP_TOKEN: ${BACKUP_TOKEN}
@@ -34,20 +36,22 @@ instances:
 # If not specified here, Marina uses hardcoded defaults:
 #   - retention: "7d:4w:6m" (7 daily, 4 weekly, 6 monthly)
 #   - stopAttached: false
+#   - resticTimeout: "60m" (60 minutes)
 retention: "14d:8w:12m" # Format: daily:weekly:monthly - applies to all instances unless overridden
 stopAttached: true # Stop containers when backing up volumes
+resticTimeout: "60m" # Global timeout for backup operations (format: "5m", "30s", "1h") - can be overridden per instance
 
 # Mesh configuration (optional) - for connecting multiple Marina instances
 # When configured, the dashboard will show backup schedules from all connected nodes
 mesh:
   # Optional custom node name (defaults to hostname if not specified)
   nodeName: ${NODE_NAME} # or "production-server-1"
-  
+
   # Optional authentication password for mesh and dashboard access
   # If set, all nodes in the mesh should use the same password
   # Can also be set via MARINA_AUTH_PASSWORD environment variable
   authPassword: ${MARINA_AUTH_PASSWORD} # or "your-secure-password"
-  
+
   # List of peer Marina API URLs to fetch data from
   # Each peer should be reachable via HTTP/HTTPS
   peers:
@@ -56,7 +60,6 @@ mesh:
     # Or use environment variables:
     # - ${PEER_NODE_1}
     # - ${PEER_NODE_2}
-
 # Dynamic discovery settings (can also be set via environment variables):
 # DISCOVERY_INTERVAL: How often to poll for container/volume changes (default: 30s)
 # ENABLE_EVENTS: Enable Docker event listener for real-time updates (default: true)

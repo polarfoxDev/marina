@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Example custom backup image with random failure simulation (75% success rate)
 - Environment variables `MARINA_INSTANCE_ID` and `MARINA_HOSTNAME` passed to custom images
 - Documentation and README for creating custom backup images
+- `resticTimeout` configuration option (global and per-instance) for backup operations with Go duration format (e.g., "5m", "30s", "1h")
+- Restic automatically runs `unlock` before backups to clear stale locks from previous runs
 
 ### Changed
 

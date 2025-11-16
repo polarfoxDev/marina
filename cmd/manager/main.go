@@ -79,6 +79,19 @@ func main() {
 		var backendInstance backend.Backend
 		var backendErr error
 
+		// Parse resticresticTimeout (instance-specific or global default)
+		timeoutStr := dest.ResticTimeout
+		if timeoutStr == "" {
+			timeoutStr = cfg.ResticTimeout
+		}
+		var resticTimeout time.Duration
+		if timeoutStr != "" {
+			resticTimeout, err = time.ParseDuration(timeoutStr)
+			if err != nil {
+				log.Fatalf("invalid restic timeout %q for instance %s: %v", timeoutStr, dest.ID, err)
+			}
+		}
+
 		if dest.CustomImage != "" {
 			// Use custom Docker image backend (hostBackupPath will be set after detection)
 			backendInstance, backendErr = backend.NewCustomImageBackend(dest.ID, dest.CustomImage, dest.Env, nodeName, "")
@@ -93,6 +106,7 @@ func main() {
 				Repository: dest.Repository,
 				Env:        dest.Env,
 				Hostname:   nodeName,
+				Timeout:    resticTimeout,
 			}
 			logger.Info("loaded instance: %s -> restic: %s", dest.ID, dest.Repository)
 		}

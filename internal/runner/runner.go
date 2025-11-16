@@ -367,6 +367,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 
 	// Perform single backup with all collected paths
 	instanceLogger.Info("backing up %d paths to instance %s using backend %s: %s", len(allPaths), job.InstanceID, dest.GetType(), allPaths)
+	instanceLogger.Debug("backend timeout: %s", dest.GetResticTimeout())
 	if dest.GetType() == backend.BackendTypeCustomImage {
 		instanceLogger.Debug("using custom image %s, log output will appear as soon as execution finished", dest.GetImage())
 	}

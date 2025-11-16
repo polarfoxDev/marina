@@ -14,7 +14,7 @@ services:
       - data2:/var/lib/marina/
       - /var/run/docker.sock:/var/run/docker.sock
       - ./staging:/backup
-      - ./repo:/repo
+      - repo:/repo
       - ./config.yml:/config/config.yml:ro
     depends_on:
       - volume-writer
@@ -29,6 +29,7 @@ services:
       - testdata2:/mnt/data
 
 volumes:
+  repo:
   data2:
   testdata2:
     labels:

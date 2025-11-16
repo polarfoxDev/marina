@@ -24,7 +24,8 @@ fi
 echo "REPO=$RESTIC_REPOSITORY"
 echo "PASS=$RESTIC_PASSWORD"
 echo "CUSTOM=$CUSTOM"
-echo "ARGS:$@"`
+echo "ARGS:$@"
+`
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		// fatal stops test immediately
 		t.Fatalf("write fake restic: %v", err)
@@ -51,7 +52,7 @@ func TestBackupAndRetentionBuildArgsAndEnv(t *testing.T) {
 		// validate env propagation
 		t.Fatalf("environment variables not passed correctly; output: %s", out)
 	}
-	if !strings.Contains(out, "ARGS:backup /data/path1 --tag tag1 --exclude ignore") {
+	if !strings.Contains(out, "ARGS:--cleanup-cache backup --verbose /data/path1 --tag tag1 --exclude ignore") {
 		t.Fatalf("arguments not built correctly; output: %s", out)
 	}
 	out2, err := b.DeleteOldSnapshots(ctx, 7, 4, 6)
