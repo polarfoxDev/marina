@@ -63,7 +63,7 @@ func main() {
 	}
 
 	// Build map of instances from config
-	instances := make(map[string]*backend.BackupInstance)
+	instances := make(map[string]backend.Backend)
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		hn, err := os.Hostname()
@@ -75,13 +75,28 @@ func main() {
 	}
 	logger.Info("using hostname %s for backups", nodeName)
 	for _, dest := range cfg.Instances {
-		instances[dest.ID] = &backend.BackupInstance{
-			ID:         dest.ID,
-			Repository: dest.Repository,
-			Env:        dest.Env,
-			Hostname:   nodeName,
+		var backendInstance backend.Backend
+		var backendErr error
+		
+		if dest.CustomImage != "" {
+			// Use custom Docker image backend
+			backendInstance, backendErr = backend.NewCustomImageBackend(dest.ID, dest.CustomImage, dest.Env, nodeName)
+			if backendErr != nil {
+				log.Fatalf("create custom image backend for %s: %v", dest.ID, backendErr)
+			}
+			logger.Info("loaded instance: %s -> custom image: %s", dest.ID, dest.CustomImage)
+		} else {
+			// Use Restic backend
+			backendInstance = &backend.ResticBackend{
+				ID:         dest.ID,
+				Repository: dest.Repository,
+				Env:        dest.Env,
+				Hostname:   nodeName,
+			}
+			logger.Info("loaded instance: %s -> restic: %s", dest.ID, dest.Repository)
 		}
-		logger.Info("loaded instance: %s -> %s", dest.ID, dest.Repository)
+		
+		instances[dest.ID] = backendInstance
 	}
 
 	if len(instances) == 0 {

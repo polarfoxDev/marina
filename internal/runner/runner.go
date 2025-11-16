@@ -22,7 +22,7 @@ type cleanupFunc func()
 
 type Runner struct {
 	Cron            *cron.Cron
-	BackupInstances map[string]*backend.BackupInstance // keyed by destination ID
+	BackupInstances map[string]backend.Backend // keyed by destination ID
 	Docker          *client.Client
 	Logger          *logging.Logger
 	DB              *database.DB // Database for persistent job status tracking
@@ -32,7 +32,7 @@ type Runner struct {
 	jobs          map[model.InstanceID]model.InstanceBackupSchedule // instance ID -> backup job config
 }
 
-func New(instances map[string]*backend.BackupInstance, docker *client.Client, logger *logging.Logger, db *database.DB) *Runner {
+func New(instances map[string]backend.Backend, docker *client.Client, logger *logging.Logger, db *database.DB) *Runner {
 	return &Runner{
 		Cron:            cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
 		BackupInstances: instances,

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Custom Docker image backend support as an alternative to Restic
+- `customImage` field in instance configuration to specify custom backup images
+- Backend interface to support multiple backup implementations
+- Example custom backup image with random failure simulation (75% success rate)
+- Environment variables `MARINA_INSTANCE_ID` and `MARINA_HOSTNAME` passed to custom images
+- Documentation and README for creating custom backup images
+
+### Changed
+
+- Refactored backend to use interface-based design (Restic and Custom Image implementations)
+- `repository` field in config is now optional when using `customImage`
+- Backend initialization and execution now supports both Restic and custom Docker containers
+
 ## [0.3.1] - 2025-11-16
 
 ### Fixed

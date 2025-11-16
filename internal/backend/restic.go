@@ -8,16 +8,17 @@ import (
 	"os/exec"
 )
 
-type BackupInstance struct {
+// ResticBackend implements the Backend interface using Restic
+type ResticBackend struct {
 	ID         string
 	Repository string
 	Env        map[string]string
 	Hostname   string
 }
 
-func (instance *BackupInstance) Close() error { return nil }
+func (instance *ResticBackend) Close() error { return nil }
 
-func (instance *BackupInstance) runRestic(ctx context.Context, args ...string) (string, error) {
+func (instance *ResticBackend) runRestic(ctx context.Context, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "restic", args...)
 	// Set repository
@@ -35,7 +36,7 @@ func (instance *BackupInstance) runRestic(ctx context.Context, args ...string) (
 	return stdout.String(), nil
 }
 
-func (instance *BackupInstance) Init(ctx context.Context) error {
+func (instance *ResticBackend) Init(ctx context.Context) error {
 	// Check if already initialized by running 'restic snapshots'
 	_, err := instance.runRestic(ctx, "snapshots")
 	if err == nil {
@@ -47,7 +48,7 @@ func (instance *BackupInstance) Init(ctx context.Context) error {
 	return err
 }
 
-func (instance *BackupInstance) Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error) {
+func (instance *ResticBackend) Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error) {
 	args := []string{"backup"}
 	// Set hostname if configured
 	if instance.Hostname != "" {
@@ -63,7 +64,7 @@ func (instance *BackupInstance) Backup(ctx context.Context, paths []string, tags
 	return instance.runRestic(ctx, args...)
 }
 
-func (instance *BackupInstance) DeleteOldSnapshots(ctx context.Context, daily, weekly, monthly int) (string, error) {
+func (instance *ResticBackend) DeleteOldSnapshots(ctx context.Context, daily, weekly, monthly int) (string, error) {
 	args := []string{"forget", "--prune"}
 	if daily > 0 {
 		args = append(args, "--keep-daily", fmt.Sprint(daily))
