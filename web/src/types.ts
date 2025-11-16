@@ -55,7 +55,7 @@ export interface LogEntry {
 }
 
 export interface SystemLogEntry {
-  id: number;
+  id: string;
   timestamp: string;
   level: LogLevel;
   message: string;

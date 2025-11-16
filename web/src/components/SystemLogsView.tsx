@@ -83,7 +83,7 @@ export function SystemLogsView() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">System Logs</h1>
         <p className="text-gray-600 mt-2">
-          View application-level logs from all nodes in the cluster
+          View application-level logs from all nodes in the mesh
         </p>
       </div>
 
