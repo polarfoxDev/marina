@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
 import { SchedulesView } from "./components/SchedulesView";
 import { JobStatusesView } from "./components/JobStatusesView";
 import { JobDetailsView } from "./components/JobDetailsView";
+import { SystemLogsView } from "./components/SystemLogsView";
 import { LoginView } from "./components/LoginView";
 
 function App() {
@@ -72,24 +73,43 @@ function App() {
     <BrowserRouter>
       <div className="min-h-screen bg-gray-50">
         <header className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Marina Backup Status
-            </h1>
-            {authRequired && authenticated && (
-              <button
-                onClick={handleLogout}
-                className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-              >
-                Logout
-              </button>
-            )}
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-8">
+                <h1 className="text-2xl font-bold text-gray-900">
+                  Marina Backup Status
+                </h1>
+                <nav className="flex space-x-4">
+                  <Link
+                    to="/"
+                    className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+                  >
+                    Schedules
+                  </Link>
+                  <Link
+                    to="/logs"
+                    className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+                  >
+                    System Logs
+                  </Link>
+                </nav>
+              </div>
+              {authRequired && authenticated && (
+                <button
+                  onClick={handleLogout}
+                  className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+                >
+                  Logout
+                </button>
+              )}
+            </div>
           </div>
         </header>
 
         <main>
           <Routes>
             <Route path="/" element={<SchedulesView />} />
+            <Route path="/logs" element={<SystemLogsView />} />
             <Route path="/instance/:instanceId" element={<JobStatusesView />} />
             <Route
               path="/instance/:instanceId/job/:jobId"

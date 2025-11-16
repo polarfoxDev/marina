@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-11-16
+
+### Fixed
+
+- Actually added changes from 0.3.0 release. Those were missing due to a merge issue.
+
 ## [0.3.0] - 2025-11-16
 
 ### Added
@@ -70,7 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/polarfoxDev/marina/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/polarfoxDev/marina/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/polarfoxDev/marina/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/polarfoxDev/marina/compare/v0.1.2...v0.2.0

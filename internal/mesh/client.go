@@ -506,6 +506,169 @@ func (c *Client) FetchJobLogs(ctx context.Context, peerURL string, jobID int, li
 	return result
 }
 
+// PeerSystemLogs represents system logs from a specific peer node
+type PeerSystemLogs struct {
+	NodeURL  string
+	NodeName string
+	Logs     []LogEntry
+	Error    error
+}
+
+// FetchAllSystemLogs fetches system logs from all peer nodes concurrently
+func (c *Client) FetchAllSystemLogs(ctx context.Context, level string, limit int) []PeerSystemLogs {
+	if len(c.peers) == 0 {
+		return nil
+	}
+
+	var wg sync.WaitGroup
+	results := make([]PeerSystemLogs, len(c.peers))
+
+	for i, peer := range c.peers {
+		wg.Add(1)
+		go func(idx int, peerURL string) {
+			defer wg.Done()
+
+			// Check if peer is in backoff period or already has a request in flight
+			c.failuresMu.RLock()
+			backoffUntil, inBackoff := c.backoffUntil[peerURL]
+			isInFlight := c.inFlight[peerURL]
+			c.failuresMu.RUnlock()
+
+			// Skip if already in backoff
+			if inBackoff && time.Now().Before(backoffUntil) {
+				results[idx] = PeerSystemLogs{
+					NodeURL: peerURL,
+					Error:   fmt.Errorf("peer in backoff until %s", backoffUntil.Format("15:04:05")),
+				}
+				return
+			}
+
+			// Skip if a request is already in flight
+			if isInFlight {
+				results[idx] = PeerSystemLogs{
+					NodeURL: peerURL,
+					Error:   fmt.Errorf("request already in flight to peer"),
+				}
+				return
+			}
+
+			// Atomically check and set in-flight flag under write lock (double-checked locking)
+			c.failuresMu.Lock()
+			if c.inFlight[peerURL] {
+				c.failuresMu.Unlock()
+				results[idx] = PeerSystemLogs{
+					NodeURL: peerURL,
+					Error:   fmt.Errorf("request already in flight to peer"),
+				}
+				return
+			}
+			c.inFlight[peerURL] = true
+			c.failuresMu.Unlock()
+
+			// Ensure we clear the in-flight flag when done
+			defer func() {
+				c.failuresMu.Lock()
+				delete(c.inFlight, peerURL)
+				c.failuresMu.Unlock()
+			}()
+
+			result := c.fetchSystemLogsFromPeer(ctx, peerURL, level, limit)
+
+			// Update failure tracking
+			if result.Error != nil {
+				c.recordFailure(peerURL)
+			} else {
+				c.recordSuccess(peerURL)
+			}
+
+			results[idx] = result
+		}(i, peer)
+	}
+
+	wg.Wait()
+	return results
+}
+
+// fetchSystemLogsFromPeer fetches system logs from a single peer
+func (c *Client) fetchSystemLogsFromPeer(ctx context.Context, peerURL string, level string, limit int) PeerSystemLogs {
+	result := PeerSystemLogs{
+		NodeURL: peerURL,
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	url := fmt.Sprintf("%s/api/logs/system?limit=%d", peerURL, limit)
+	if level != "" {
+		url += "&level=" + level
+	}
+	req, err := http.NewRequestWithContext(reqCtx, "GET", url, nil)
+	if err != nil {
+		result.Error = fmt.Errorf("create request: %w", err)
+		return result
+	}
+	// Mark this as a mesh request to prevent recursion
+	req.Header.Set("X-Marina-Mesh", "true")
+	c.addAuthHeader(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		result.Error = fmt.Errorf("fetch system logs: %w", err)
+		return result
+	}
+	defer resp.Body.Close()
+
+	// If we get 401, the token might be expired - clear it and retry once
+	if resp.StatusCode == http.StatusUnauthorized && c.password != "" {
+		resp.Body.Close()
+
+		baseURL := req.URL.Scheme + "://" + req.URL.Host
+		c.tokensMu.Lock()
+		delete(c.tokens, baseURL)
+		c.tokensMu.Unlock()
+
+		reqCtx2, cancel2 := context.WithTimeout(ctx, c.timeout)
+		defer cancel2()
+
+		req2, err := http.NewRequestWithContext(reqCtx2, "GET", url, nil)
+		if err != nil {
+			result.Error = fmt.Errorf("create retry request: %w", err)
+			return result
+		}
+		// Mark this as a mesh request to prevent recursion
+		req2.Header.Set("X-Marina-Mesh", "true")
+		c.addAuthHeader(req2)
+
+		resp, err = c.httpClient.Do(req2)
+		if err != nil {
+			result.Error = fmt.Errorf("fetch system logs (retry): %w", err)
+			return result
+		}
+		defer resp.Body.Close()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		result.Error = fmt.Errorf("unexpected status: %d", resp.StatusCode)
+		return result
+	}
+
+	var logs []LogEntry
+	if err := json.NewDecoder(resp.Body).Decode(&logs); err != nil {
+		result.Error = fmt.Errorf("decode response: %w", err)
+		return result
+	}
+
+	result.Logs = logs
+
+	// Try to fetch node name
+	result.NodeName = c.fetchNodeName(ctx, peerURL)
+	if result.NodeName == "" {
+		result.NodeName = peerURL
+	}
+
+	return result
+}
+
 // addAuthHeader adds authentication header to the request
 func (c *Client) addAuthHeader(req *http.Request) {
 	if c.password == "" {

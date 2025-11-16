@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -163,6 +164,7 @@ func main() {
 
 			r.Route("/logs", func(r chi.Router) {
 				r.Get("/job/{id}", handleGetJobLogs(logger, meshClient))
+				r.Get("/system", handleGetSystemLogs(logger, meshClient, nodeName))
 			})
 		})
 	})
@@ -240,7 +242,7 @@ func handleInfo(nodeName string) http.HandlerFunc {
 func handleGetSchedules(db *database.DB, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.Background()
-		
+
 		// Check if this is a request from another Marina mesh node (prevent recursion)
 		// Marina mesh clients set X-Marina-Mesh header
 		if r.Header.Get("X-Marina-Mesh") == "true" {
@@ -250,16 +252,16 @@ func handleGetSchedules(db *database.DB, meshClient *mesh.Client, nodeName strin
 				http.Error(w, fmt.Sprintf("Failed to get schedules: %v", err), http.StatusInternalServerError)
 				return
 			}
-			
+
 			// Add node name to local schedules
 			for _, schedule := range schedules {
 				schedule.NodeName = nodeName
 			}
-			
+
 			respondJSON(w, schedules)
 			return
 		}
-		
+
 		// This is a regular user request - return local + mesh data
 		// Fetch local schedules
 		schedules, err := db.GetAllSchedules(ctx)
@@ -307,7 +309,7 @@ func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName strin
 		}
 
 		ctx := context.Background()
-		
+
 		// Check if this is a request from another Marina mesh node (prevent recursion)
 		if r.Header.Get("X-Marina-Mesh") == "true" {
 			// This is a mesh peer requesting data - only return local data
@@ -316,17 +318,17 @@ func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName strin
 				http.Error(w, fmt.Sprintf("Failed to get statuses: %v", err), http.StatusInternalServerError)
 				return
 			}
-			
+
 			// Add node information to local statuses
 			for i := range statuses {
 				statuses[i].NodeName = nodeName
 				statuses[i].NodeURL = "" // Empty for local node
 			}
-			
+
 			respondJSON(w, statuses)
 			return
 		}
-		
+
 		// This is a regular user request - return local + mesh data
 		// Fetch local statuses
 		statuses, err := db.GetJobStatus(ctx, instanceID)
@@ -416,6 +418,112 @@ func handleGetJobLogs(logger *logging.Logger, meshClient *mesh.Client) http.Hand
 	}
 }
 
+// SystemLogEntryWithNode wraps a log entry with node information for mesh mode
+type SystemLogEntryWithNode struct {
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	NodeName  string    `json:"nodeName"`
+}
+
+// GET /api/logs/system - Get system logs (logs without job_status_id) from local + mesh peers
+func handleGetSystemLogs(logger *logging.Logger, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.Background()
+
+		// Get limit from query parameter (default: 1000, max: 5000)
+		limitStr := r.URL.Query().Get("limit")
+		limit := 1000
+		if limitStr != "" {
+			if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+				limit = min(parsedLimit, 5000)
+			}
+		}
+
+		// Get level filter from query parameter (optional)
+		levelStr := r.URL.Query().Get("level")
+		var level logging.LogLevel
+		if levelStr != "" {
+			level = logging.LogLevel(levelStr)
+		}
+
+		// Check if this is a request from another Marina mesh node (prevent recursion)
+		if r.Header.Get("X-Marina-Mesh") == "true" {
+			// This is a mesh peer requesting data - only return local data
+			logs, err := logger.QuerySystemLogs(level, limit)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get system logs: %v", err), http.StatusInternalServerError)
+				return
+			}
+			respondJSON(w, logs)
+			return
+		}
+
+		// This is a regular user request - return local + mesh data with node info
+		logs, err := logger.QuerySystemLogs(level, limit)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get system logs: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Convert to SystemLogEntryWithNode format and add local node name
+		result := make([]SystemLogEntryWithNode, 0, len(logs))
+		for _, log := range logs {
+			result = append(result, SystemLogEntryWithNode{
+				ID:        nodeName + ":" + fmt.Sprint(log.ID), // Prefix ID with node name to ensure uniqueness
+				Timestamp: log.Timestamp,
+				Level:     string(log.Level),
+				Message:   log.Message,
+				NodeName:  nodeName,
+			})
+		}
+
+		// Fetch system logs from mesh peers if configured
+		if meshClient != nil {
+			peerResults := meshClient.FetchAllSystemLogs(ctx, levelStr, limit)
+			for _, peerResult := range peerResults {
+				if peerResult.Error != nil {
+					// Don't log backoff errors as warnings - they're expected
+					errMsg := peerResult.Error.Error()
+					if !strings.Contains(errMsg, "peer in backoff") {
+						log.Printf("Warning: failed to fetch system logs from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					}
+					continue
+				}
+				// Add peer logs with their node name
+				for _, peerLog := range peerResult.Logs {
+					// Parse timestamp string to time.Time
+					ts, err := time.Parse(time.RFC3339, peerLog.Timestamp)
+					if err != nil {
+						// Fallback to current time if parsing fails
+						ts = time.Now()
+					}
+					result = append(result, SystemLogEntryWithNode{
+						ID:        peerResult.NodeName + ":" + fmt.Sprint(peerLog.ID), // Prefix ID with node name
+						Timestamp: ts,
+						Level:     peerLog.Level,
+						Message:   peerLog.Message,
+						NodeName:  peerResult.NodeName,
+					})
+				}
+			}
+		}
+
+		// sort result by timestamp descending
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].Timestamp.After(result[j].Timestamp)
+		})
+
+		// Trim to limit
+		if len(result) > limit {
+			result = result[:limit]
+		}
+
+		respondJSON(w, result)
+	}
+}
+
 // Helper to respond with JSON
 func respondJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -435,96 +543,96 @@ func envDefault(k, def string) string {
 
 // POST /api/auth/login - Login endpoint
 func handleLogin(authHandler *auth.Auth) http.HandlerFunc {
-return func(w http.ResponseWriter, r *http.Request) {
-// If auth is not enabled, always succeed
-if !authHandler.IsEnabled() {
-respondJSON(w, map[string]interface{}{
-"success": true,
-"message": "Authentication not required",
-})
-return
-}
+	return func(w http.ResponseWriter, r *http.Request) {
+		// If auth is not enabled, always succeed
+		if !authHandler.IsEnabled() {
+			respondJSON(w, map[string]interface{}{
+				"success": true,
+				"message": "Authentication not required",
+			})
+			return
+		}
 
-var req struct {
-Password string `json:"password"`
-}
+		var req struct {
+			Password string `json:"password"`
+		}
 
-if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-http.Error(w, "Invalid request", http.StatusBadRequest)
-return
-}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
 
-if !authHandler.ValidatePassword(req.Password) {
-http.Error(w, "Invalid password", http.StatusUnauthorized)
-return
-}
+		if !authHandler.ValidatePassword(req.Password) {
+			http.Error(w, "Invalid password", http.StatusUnauthorized)
+			return
+		}
 
-// Generate token
-token, err := authHandler.GenerateToken()
-if err != nil {
-http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-return
-}
+		// Generate token
+		token, err := authHandler.GenerateToken()
+		if err != nil {
+			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+			return
+		}
 
-// Set cookie
-http.SetCookie(w, &http.Cookie{
-Name:     auth.CookieName,
-Value:    token,
-Path:     "/",
-HttpOnly: true,
-Secure:   r.TLS != nil,
-SameSite: http.SameSiteLaxMode,
-MaxAge:   int(auth.TokenExpiry.Seconds()),
-})
+		// Set cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     auth.CookieName,
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   int(auth.TokenExpiry.Seconds()),
+		})
 
-respondJSON(w, map[string]interface{}{
-"success": true,
-"token":   token,
-})
-}
+		respondJSON(w, map[string]interface{}{
+			"success": true,
+			"token":   token,
+		})
+	}
 }
 
 // POST /api/auth/logout - Logout endpoint
 func handleLogout(authHandler *auth.Auth) http.HandlerFunc {
-return func(w http.ResponseWriter, r *http.Request) {
-token := authHandler.GetTokenFromRequest(r)
-if token != "" {
-authHandler.InvalidateToken(token)
-}
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := authHandler.GetTokenFromRequest(r)
+		if token != "" {
+			authHandler.InvalidateToken(token)
+		}
 
-// Clear cookie
-http.SetCookie(w, &http.Cookie{
-Name:     auth.CookieName,
-Value:    "",
-Path:     "/",
-HttpOnly: true,
-MaxAge:   -1,
-})
+		// Clear cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     auth.CookieName,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			MaxAge:   -1,
+		})
 
-respondJSON(w, map[string]interface{}{
-"success": true,
-})
-}
+		respondJSON(w, map[string]interface{}{
+			"success": true,
+		})
+	}
 }
 
 // GET /api/auth/check - Check if authentication is required and if user is authenticated
 func handleAuthCheck(authHandler *auth.Auth) http.HandlerFunc {
-return func(w http.ResponseWriter, r *http.Request) {
-response := map[string]interface{}{
-"authRequired": authHandler.IsEnabled(),
-"authenticated": false,
-}
+	return func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"authRequired":  authHandler.IsEnabled(),
+			"authenticated": false,
+		}
 
-if authHandler.IsEnabled() {
-token := authHandler.GetTokenFromRequest(r)
-if token != "" && authHandler.ValidateToken(token) {
-response["authenticated"] = true
-}
-} else {
-// If auth is not required, consider user authenticated
-response["authenticated"] = true
-}
+		if authHandler.IsEnabled() {
+			token := authHandler.GetTokenFromRequest(r)
+			if token != "" && authHandler.ValidateToken(token) {
+				response["authenticated"] = true
+			}
+		} else {
+			// If auth is not required, consider user authenticated
+			response["authenticated"] = true
+		}
 
-respondJSON(w, response)
-}
+		respondJSON(w, response)
+	}
 }

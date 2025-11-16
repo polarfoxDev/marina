@@ -54,6 +54,14 @@ export interface LogEntry {
   jobStatusIid: number | null;
 }
 
+export interface SystemLogEntry {
+  id: string;
+  timestamp: string;
+  level: LogLevel;
+  message: string;
+  nodeName: string;
+}
+
 export interface HealthResponse {
   status: string;
   time: string;
