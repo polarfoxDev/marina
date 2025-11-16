@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed panic when Docker events contain IDs shorter than 12 characters (slice bounds out of range error)
+
 ## [0.4.0] - 2025-11-16
 
 ### Added
