@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -16,26 +15,28 @@ import (
 
 // CustomImageBackend implements the Backend interface using a custom Docker image
 type CustomImageBackend struct {
-	ID           string
-	CustomImage  string
-	Env          map[string]string
-	Hostname     string
-	dockerClient *client.Client
+	ID             string
+	CustomImage    string
+	Env            map[string]string
+	Hostname       string
+	HostBackupPath string
+	dockerClient   *client.Client
 }
 
 // NewCustomImageBackend creates a new custom image backend
-func NewCustomImageBackend(id, customImage string, env map[string]string, hostname string) (*CustomImageBackend, error) {
+func NewCustomImageBackend(id, customImage string, env map[string]string, hostname, hostBackupPath string) (*CustomImageBackend, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("create docker client: %w", err)
 	}
 
 	return &CustomImageBackend{
-		ID:           id,
-		CustomImage:  customImage,
-		Env:          env,
-		Hostname:     hostname,
-		dockerClient: cli,
+		ID:             id,
+		CustomImage:    customImage,
+		Env:            env,
+		Hostname:       hostname,
+		HostBackupPath: hostBackupPath,
+		dockerClient:   cli,
 	}, nil
 }
 
@@ -67,12 +68,6 @@ func (b *CustomImageBackend) Init(ctx context.Context) error {
 
 // Backup performs the backup by starting a container with the custom image
 func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error) {
-	// Find Marina's staging volume
-	stagingVolume, err := b.findStagingVolume(ctx)
-	if err != nil {
-		return "", fmt.Errorf("find staging volume: %w", err)
-	}
-
 	// Build environment variables
 	envVars := []string{}
 	for k, v := range b.Env {
@@ -90,11 +85,14 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 		Env:   envVars,
 	}
 
+	// Mount only this instance's subfolder to isolate backup data
+	instanceStagingPath := fmt.Sprintf("%s/%s", b.HostBackupPath, b.ID)
+
 	hostConfig := &container.HostConfig{
 		Mounts: []mount.Mount{
 			{
-				Type:   mount.TypeVolume,
-				Source: stagingVolume,
+				Type:   mount.TypeBind,
+				Source: instanceStagingPath,
 				Target: "/backup",
 			},
 		},
@@ -181,28 +179,4 @@ func (b *CustomImageBackend) getContainerLogs(ctx context.Context, containerID s
 	}
 
 	return buf.String(), nil
-}
-
-// findStagingVolume finds Marina's staging volume by inspecting Marina's own container
-func (b *CustomImageBackend) findStagingVolume(ctx context.Context) (string, error) {
-	// Find Marina's container ID
-	hostname, err := os.Hostname()
-	if err != nil {
-		return "", fmt.Errorf("get hostname: %w", err)
-	}
-
-	// Try to inspect using hostname (which is usually the container ID)
-	inspect, err := b.dockerClient.ContainerInspect(ctx, hostname)
-	if err != nil {
-		return "", fmt.Errorf("inspect marina container: %w", err)
-	}
-
-	// Find the volume mounted at /backup
-	for _, mount := range inspect.Mounts {
-		if mount.Destination == "/backup" && mount.Type == "volume" {
-			return mount.Name, nil
-		}
-	}
-
-	return "", fmt.Errorf("no volume mounted at /backup in marina container")
 }

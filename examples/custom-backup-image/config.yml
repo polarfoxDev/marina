@@ -6,7 +6,7 @@ instances:
       BACKUP_ENDPOINT: https://backup.example.com
       BACKUP_TOKEN: example-token-12345
   - id: restic-backup
-    repository: /backup/repo
+    repository: /backup-repo
     schedule: "* * * * *" # every minute
     env:
       RESTIC_PASSWORD: example-token-12345

@@ -80,8 +80,8 @@ func main() {
 		var backendErr error
 
 		if dest.CustomImage != "" {
-			// Use custom Docker image backend
-			backendInstance, backendErr = backend.NewCustomImageBackend(dest.ID, dest.CustomImage, dest.Env, nodeName)
+			// Use custom Docker image backend (hostBackupPath will be set after detection)
+			backendInstance, backendErr = backend.NewCustomImageBackend(dest.ID, dest.CustomImage, dest.Env, nodeName, "")
 			if backendErr != nil {
 				log.Fatalf("create custom image backend for %s: %v", dest.ID, backendErr)
 			}
@@ -129,12 +129,28 @@ func main() {
 		log.Fatalf("docker client: %v", err)
 	}
 
+	// Detect the actual host path for /backup mount
+	hostBackupPath, err := dockerd.GetBackupHostPath(ctx, dcli)
+	if err != nil {
+		log.Fatalf("detect host backup path: %v", err)
+	}
+	logger.Info("detected host backup path: %s", hostBackupPath)
+
+	// Update custom image backends with host backup path
+	for id, instance := range instances {
+		if customBackend, ok := instance.(*backend.CustomImageBackend); ok {
+			customBackend.HostBackupPath = hostBackupPath
+			logger.Debug("updated instance %s with host backup path", id)
+		}
+	}
+
 	// Create runner with all instances
 	r := runner.New(
 		instances,
 		dcli,
 		logger,
 		db,
+		hostBackupPath,
 	)
 
 	// Start the scheduler

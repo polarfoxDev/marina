@@ -26,19 +26,21 @@ type Runner struct {
 	Docker          *client.Client
 	Logger          *logging.Logger
 	DB              *database.DB // Database for persistent job status tracking
+	HostBackupPath  string       // Actual host path where /backup is mounted from
 
 	// Track scheduled jobs for dynamic updates
 	scheduledJobs map[model.InstanceID]cron.EntryID                 // instance ID -> cron entry ID
 	jobs          map[model.InstanceID]model.InstanceBackupSchedule // instance ID -> backup job config
 }
 
-func New(instances map[model.InstanceID]backend.Backend, docker *client.Client, logger *logging.Logger, db *database.DB) *Runner {
+func New(instances map[model.InstanceID]backend.Backend, docker *client.Client, logger *logging.Logger, db *database.DB, hostBackupPath string) *Runner {
 	return &Runner{
 		Cron:            cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
 		BackupInstances: instances,
 		Docker:          docker,
 		Logger:          logger,
 		DB:              db,
+		HostBackupPath:  hostBackupPath,
 		scheduledJobs:   make(map[model.InstanceID]cron.EntryID),
 		jobs:            make(map[model.InstanceID]model.InstanceBackupSchedule),
 	}
@@ -459,7 +461,7 @@ func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp 
 
 	// Copy volume data to staging
 	jobLogger.Info("copying volume %s to staging", target.VolumeName)
-	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, instanceID, timestamp, target.VolumeName, target.Paths)
+	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, r.HostBackupPath, instanceID, timestamp, target.VolumeName, target.Paths)
 	if err != nil {
 		// Restart stopped containers before returning error
 		for _, ctr := range stoppedContainers {

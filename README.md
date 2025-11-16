@@ -2,7 +2,7 @@
 
 **Docker-native backup orchestration using Restic**
 
-Marina is a backup orchestrator that discovers and backs up Docker volumes and databases based on Docker labels. It uses [Restic](https://restic.net/) as the backup backend and supports multiple backup destinations (S3, local, and any Restic-compatible storage).
+Marina is a backup orchestrator that discovers and backs up Docker volumes and databases based on Docker labels. It uses [Restic](https://restic.net/) as the backup backend and supports multiple backup destinations (S3, local, and any Restic-compatible storage). In addition, Marina supports custom Docker image backends for maximum flexibility.
 
 ## Project Status
 
@@ -18,6 +18,7 @@ Planned features:
 
 - **Label-driven configuration**: Define backups using Docker labels on volumes and containers
 - **Multiple backup destinations**: S3, local filesystem, or any Restic repository
+- **Custom backup backends**: Use custom Docker images for alternative backup destinations
 - **Database dumps**: Native support for PostgreSQL, MySQL, MariaDB, MongoDB, and Redis
 - **Volume backups**: Back up Docker volumes with optional container stop/start
 - **Dynamic discovery**: Automatically detects new/removed containers and volumes
@@ -68,7 +69,10 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - marina-staging:/backup
+      # IMPORTANT: Must be a bind mount from the host, not a Docker volume
+      # Marina uses this to stage backup data and automatically detects
+      # the host path for creating temporary containers
+      - ./staging:/backup
       - marina-data:/var/lib/marina
       - ./config.yml:/app/config.yml:ro
     ports:
@@ -97,7 +101,6 @@ services:
       - app-data:/app/data
 
 volumes:
-  marina-staging:
   marina-data:
   postgres-data:
   
@@ -187,10 +190,73 @@ Marina uses a two-tier configuration approach:
 1. **config.yml**: Defines backup instances (repositories, credentials, schedules) and optional mesh networking
 2. **Docker labels**: Define what to backup and target-specific settings
 
-See [config.example.yml](config.example.yml) for a complete configuration example including mesh mode setup and [docker-compose.example.yml](docker-compose.example.yml) for a full deployment example.
+### Important: Staging Directory Mount
+
+Marina requires `/backup` to be mounted as a **host bind mount** (not a Docker volume). This directory is used for:
+
+- **Volume backups**: Staging data from Docker volumes before sending to backup destination
+- **Database dumps**: Temporarily storing database dumps before backup
+- **Custom backends**: Providing backup data to custom Docker image backends
+
+Marina automatically detects the actual host path where `/backup` is mounted by inspecting its own container. This host path is then used to create bind mounts in temporary containers for:
+
+- Volume copy operations (temporary Alpine containers)
+- Custom image backend containers (scoped to `/backup/{instanceID}`)
+
+**Example mounting options**:
+
+```yaml
+volumes:
+  - ./staging:/backup              # Relative path
+  - /var/lib/marina/staging:/backup  # Absolute path
+  - $HOME/marina-staging:/backup   # With environment variable
+```
+
+**Note**: Each custom backend container only sees its own instance's data at `/backup/{instanceID}` for security and isolation.
+
+### Custom Backup Backends
+
+In addition to Restic, Marina supports **custom Docker image backends** that allow you to implement your own backup logic. This is useful for:
+
+- Backing up to services not supported by Restic
+- Implementing custom backup formats or compression
+- Integrating with proprietary backup systems
+- Custom data transformation before backup
+
+**Configuration example**:
+
+```yaml
+instances:
+  - id: custom-s3
+    customImage: your-registry/your-backup-image:latest
+    schedule: "0 3 * * *"
+    env:
+      BACKUP_ENDPOINT: https://backup.example.com
+      BACKUP_TOKEN: ${BACKUP_TOKEN}
+```
+
+**How it works**:
+
+1. Marina stages backup data in `/backup/{instanceID}` on the host
+2. Marina creates a container from your custom image
+3. Only that instance's subfolder is mounted at `/backup` in the container (scoped access)
+4. Your container's `/backup.sh` script executes with access to the staged data
+5. Marina captures the exit code (0 = success, non-zero = failure) and logs
+
+**Your custom image must**:
+
+- Have a `/backup.sh` script (or configure a different entrypoint)
+- Read backup data from `/backup` directory
+- Exit with code 0 on success, non-zero on failure
+- Handle its own retention policy (Marina's retention config is informational only)
+
+See the [custom backup image example](examples/custom-backup-image/) for a complete working example and [custom backends documentation](docs/custom-backends.md) for detailed implementation guide.
 
 ## Documentation
 
+See [config.example.yml](config.example.yml) for a complete configuration example including mesh mode setup and [docker-compose.example.yml](docker-compose.example.yml) for a full deployment example.
+
+- [Custom Backends](docs/custom-backends.md) - Build your own backup backend using Docker images
 - [Dynamic Discovery](docs/dynamic-discovery.md) - How Marina detects changes automatically
 - [Architecture](docs/architecture-diagram.md) - System design and data flow
 - [Web Interface](docs/web-interface.md) - React dashboard and mesh mode

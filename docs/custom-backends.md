@@ -16,7 +16,7 @@ instances:
       BACKUP_ENDPOINT: https://backup.example.com
 ```
 
-2. **Create your Docker image** with a `/backup.sh` script:
+1. **Create your Docker image** with a `/backup.sh` script:
 
 ```dockerfile
 FROM alpine:3.20
@@ -25,7 +25,7 @@ RUN chmod +x /backup.sh
 ENTRYPOINT ["/backup.sh"]
 ```
 
-3. **Label your volumes/containers** to use this instance:
+1. **Label your volumes/containers** to use this instance:
 
 ```yaml
 volumes:
@@ -40,28 +40,28 @@ volumes:
 ### Backup Flow
 
 1. Marina discovers targets (volumes/databases) via Docker labels
-2. Marina stages backup data in `/backup` directory (its staging volume)
-3. Marina starts a container with your custom image
-4. The staging volume is mounted at `/backup` in your container
-5. Your `/backup.sh` script runs and performs the backup
-6. Marina captures stdout/stderr for logs
-7. Container exit code determines success (0) or failure (non-zero)
-8. Container is automatically removed after completion
+1. Marina stages backup data in `/backup/{instanceID}` directory on the host
+1. Marina creates a container using your custom image
+1. Only `/backup/{instanceID}` is mounted at `/backup` in the container (scoped to this instance)
+1. Your container's `/backup.sh` script executes
+1. Marina captures stdout/stderr for logs
+1. Container exit code determines success (0) or failure (non-zero)
+1. Container is automatically removed after completion
 
 ### Custom Image Contract
 
 Your custom Docker image must:
 
 - **Have a `/backup.sh` script** (or specify a different entrypoint)
-- **Read data from `/backup` directory** - Marina mounts its staging volume here
-- **Exit with code 0 on success**, non-zero on failure
+- **Read data from `/backup` directory** - Marina mounts only this instance's subfolder here (`/backup/{instanceID}` on host → `/backup` in container)
+- **Exit with code 0** on success, non-zero on failure
 - **Write logs to stdout/stderr** - Marina captures these for the dashboard
 
 ### Directory Structure
 
-Marina stages data in `/backup` with this structure:
+Marina internally stages data with this structure:
 
-```
+```text
 /backup/
   └── {instance-id}/
       └── {timestamp}/
@@ -73,23 +73,7 @@ Marina stages data in `/backup` with this structure:
                   └── dump.sql (or .archive for MongoDB)
 ```
 
-Example:
-```
-/backup/
-  └── my-backup/
-      └── 20250116-143052/
-          ├── vol/
-          │   ├── app-data/
-          │   │   ├── uploads/
-          │   │   └── config/
-          │   └── nginx-config/
-          │       └── nginx.conf
-          └── dbs/
-              ├── postgres-main/
-              │   └── dump.sql
-              └── redis-cache/
-                  └── dump.rdb
-```
+Inside your custom container, access the data under `/backup/{timestamp}/vol/` and `/backup/{timestamp}/dbs/`, because `{instance-id}` is mounted at `/backup`.
 
 ### Environment Variables
 
@@ -221,16 +205,19 @@ docker run --rm \
 ### Common Issues
 
 **Container exits immediately:**
+
 - Check that `/backup.sh` has execute permissions
 - Verify the script has a proper shebang (`#!/bin/sh`)
 - Check for syntax errors in your script
 
 **"No backup data found":**
+
 - Verify volumes/databases have correct labels
 - Check that `instanceID` matches your config
 - Ensure Marina can access Docker socket
 
 **Permissions errors:**
+
 - Custom containers run as root by default
 - Staged files are owned by root
 - Ensure your backup script handles permissions correctly
@@ -300,6 +287,7 @@ aws s3 ls "s3://my-bucket/" >/dev/null || { echo "Cannot access S3 bucket"; exit
 ## Example Images
 
 Marina includes an example custom backup image in `examples/custom-backup-image/` that demonstrates:
+
 - Basic container structure
 - Environment variable usage
 - Log output

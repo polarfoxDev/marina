@@ -107,21 +107,11 @@ func IsContainerRunning(ctx context.Context, cli *client.Client, containerID str
 
 // CopyVolumeToStaging starts a temporary container with the specified volume mounted read-only,
 // copies the data from the specified paths within the volume to a staging directory.
-// It automatically detects the staging volume by inspecting Marina's own container mounts.
+// The staging directory must be mounted at /backup as a host bind mount.
+// hostBackupPath is the actual path on the host that /backup is mounted from.
 // Returns the paths to the staged data.
 // NOTE: Caller is responsible for cleaning up the staging directory after backup completes.
-func CopyVolumeToStaging(ctx context.Context, cli *client.Client, instanceID, timestamp, volumeName string, paths []string) ([]string, error) {
-	// Find Marina's container ID and staging volume
-	marinaContainer, err := findMarinaContainer(ctx, cli)
-	if err != nil {
-		return nil, fmt.Errorf("find marina container: %w", err)
-	}
-
-	stagingVolume, err := findStagingVolume(ctx, cli, marinaContainer)
-	if err != nil {
-		return nil, fmt.Errorf("find staging volume: %w", err)
-	}
-
+func CopyVolumeToStaging(ctx context.Context, cli *client.Client, hostBackupPath, instanceID, timestamp, volumeName string, paths []string) ([]string, error) {
 	// Create a unique subdirectory in staging for this volume backup
 	stagingSubdir := fmt.Sprintf("%s/%s/vol/%s", instanceID, timestamp, volumeName)
 	stagingPath := filepath.Join("/backup", stagingSubdir)
@@ -146,8 +136,8 @@ func CopyVolumeToStaging(ctx context.Context, cli *client.Client, instanceID, ti
 				ReadOnly: true,
 			},
 			{
-				Type:   mount.TypeVolume,
-				Source: stagingVolume,
+				Type:   mount.TypeBind,
+				Source: hostBackupPath,
 				Target: "/backup",
 			},
 		},
@@ -207,74 +197,31 @@ func CopyVolumeToStaging(ctx context.Context, cli *client.Client, instanceID, ti
 	return stagedPaths, nil
 }
 
-// findMarinaContainer finds the current Marina container by hostname
-// In Docker, the hostname defaults to the container ID (short form)
-func findMarinaContainer(ctx context.Context, cli *client.Client) (string, error) {
-	// First try: use hostname (which is typically the short container ID)
+// GetBackupHostPath inspects Marina's own container to find the actual host path
+// for the /backup mount. This is needed to create bind mounts in temporary containers.
+func GetBackupHostPath(ctx context.Context, cli *client.Client) (string, error) {
+	// Get Marina's container ID from hostname
 	hostname, err := os.Hostname()
 	if err != nil {
 		return "", fmt.Errorf("get hostname: %w", err)
 	}
 
-	// Verify this is a valid container by trying to inspect it
-	_, err = cli.ContainerInspect(ctx, hostname)
-	if err == nil {
-		return hostname, nil
-	}
-
-	// Fallback: try cgroup parsing (works on older Docker versions)
-	data, err := os.ReadFile("/proc/self/cgroup")
+	// Inspect Marina's container
+	inspect, err := cli.ContainerInspect(ctx, hostname)
 	if err != nil {
-		return "", fmt.Errorf("read cgroup: %w", err)
+		return "", fmt.Errorf("inspect marina container: %w", err)
 	}
 
-	// Parse container ID from cgroup (works for cgroup v1)
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "docker") {
-			parts := strings.Split(line, "/")
-			for i, part := range parts {
-				if part == "docker" && i+1 < len(parts) {
-					containerID := parts[i+1]
-					// Try to verify it's valid
-					_, err := cli.ContainerInspect(ctx, containerID)
-					if err == nil {
-						return containerID, nil
-					}
-				}
-			}
-		}
-		// For cgroup v2 with full path
-		if strings.HasPrefix(line, "0::/") && strings.Contains(line, "docker") {
-			parts := strings.Split(line, "/")
-			for _, part := range parts {
-				// Container IDs are 64 characters or start with docker-
-				if len(part) == 64 || (len(part) > 10 && strings.HasPrefix(part, "docker-")) {
-					containerID := strings.TrimPrefix(part, "docker-")
-					_, err := cli.ContainerInspect(ctx, containerID)
-					if err == nil {
-						return containerID, nil
-					}
-				}
-			}
-		}
-	}
-
-	return "", fmt.Errorf("could not find container ID (hostname: %s)", hostname)
-}
-
-// findStagingVolume inspects Marina's mounts to find the volume mounted at /backup
-func findStagingVolume(ctx context.Context, cli *client.Client, containerID string) (string, error) {
-	inspect, err := cli.ContainerInspect(ctx, containerID)
-	if err != nil {
-		return "", fmt.Errorf("inspect container: %w", err)
-	}
-
+	// Find the mount for /backup
 	for _, mount := range inspect.Mounts {
-		if mount.Destination == "/backup" && mount.Type == "volume" {
-			return mount.Name, nil
+		if mount.Destination == "/backup" {
+			if mount.Type == "bind" {
+				return mount.Source, nil
+			}
+			// If it's a volume, we can't use it for bind mounts in other containers
+			return "", fmt.Errorf("/backup is mounted as volume %s, must be a bind mount from host", mount.Source)
 		}
 	}
 
-	return "", fmt.Errorf("no volume mounted at /backup in marina container")
+	return "", fmt.Errorf("no mount found at /backup in marina container")
 }

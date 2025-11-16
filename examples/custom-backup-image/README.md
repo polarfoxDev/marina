@@ -6,11 +6,12 @@ This is an example Docker image that demonstrates how to create a custom backup 
 
 When Marina uses a custom image backend:
 
-1. Marina stages all backup data in the `/backup` directory (which is mounted from Marina's staging volume)
-2. Marina starts a container with your custom image
+1. Marina stages all backup data in the `/backup/{instanceID}` directory on the host
+2. Marina creates a container using your custom image
 3. The container's `/backup.sh` script is executed
-4. Marina captures stdout/stderr from the container for logs
-5. The container's exit code determines success (0) or failure (non-zero)
+4. Marina mounts only `/backup/{instanceID}` from the host to `/backup` in the container (scoped to this instance)
+5. Marina captures stdout/stderr from the container for logs
+6. The container's exit code determines success (0) or failure (non-zero)
 
 ## Example Script Behavior
 

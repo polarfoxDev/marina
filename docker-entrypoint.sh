@@ -5,7 +5,7 @@ set -e
 # Runs both the backup manager and the API server
 
 # Ensure required directories exist
-mkdir -p /var/lib/marina /backup/tmp
+mkdir -p /var/lib/marina /backup
 
 # Function to handle shutdown gracefully
 shutdown() {

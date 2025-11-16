@@ -5,8 +5,9 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - marina-staging:/backup
-      - marina-data:/var/lib/marina
+      - ./backup:/backup
+      - ./backup-repo:/backup-repo
+      - app-data:/var/lib/marina
       - ./config.yml:/app/config.yml:ro
     ports:
       - "8080:8080"
@@ -25,14 +26,13 @@ services:
     image: alpine:3.20
     container_name: backup-target
     restart: unless-stopped
-    command: ["sh", "-lc", "dd if=/dev/urandom of=/mnt/data1/random.bin bs=1M count=10 && dd if=/dev/urandom of=/mnt/data2/random.bin bs=1M count=10 && sleep infinity"]
+    command: ["sh", "-lc", "dd if=/dev/urandom of=/mnt/data1/random.bin bs=1M count=100 && dd if=/dev/urandom of=/mnt/data2/random.bin bs=1M count=100 && sleep infinity"]
     volumes:
       - custom-data:/mnt/data1
       - restic-data:/mnt/data2
 
 volumes:
-  marina-staging:
-  marina-data:
+  app-data:
   custom-data:
     labels:
       dev.polarfox.marina.enabled: "true"

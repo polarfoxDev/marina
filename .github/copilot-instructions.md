@@ -95,8 +95,9 @@ dev.polarfox.marina.dump.args: "--clean,--if-exists" # For postgres
 1. **Volume backups**:
 
    - Volume data copied to staging directory via temporary Alpine container with volume mounted read-only
-   - Temporary container started with both the source volume mounted at `/source` (read-only) and the staging volume (same as Marina's `/backup`) mounted at `/backup`
-   - Marina automatically detects its staging volume by inspecting its own container mounts
+   - Marina detects the actual host path for `/backup` by inspecting its own container mounts
+   - Temporary container started with source volume at `/source` (read-only) and host staging path bind mounted at `/backup`
+   - Marina's `/backup` directory must be mounted from the host filesystem (not a Docker volume)
    - Data copied using `cp -a` to preserve attributes into `/backup/volume/{name}/{timestamp}/`
    - Staging subdirectory cleaned up automatically after backup completes
    - If `stopAttached=true`, stops non-readonly mounted containers before backup
@@ -106,6 +107,7 @@ dev.polarfox.marina.dump.args: "--clean,--if-exists" # For postgres
 
    - Dump executed _inside DB container_ via `docker exec` to `/tmp/marina-{timestamp}`
    - Dump file copied out using Docker API to Marina's staging directory: `/backup/db/{name}/{timestamp}`
+   - Marina's `/backup` must be mounted from host filesystem
    - Staging directory cleaned up after backup
    - Pre/post hooks execute in the DB container itself
 
@@ -125,6 +127,8 @@ dev.polarfox.marina.dump.args: "--clean,--if-exists" # For postgres
 **Deferred cleanup**: Pre/post hooks and container restarts use `defer` to ensure cleanup even on error (see `runner.go`)
 
 **Read-only volume detection**: Skips stopping containers mounted with `Mode == "ro"` to avoid unnecessary disruption
+
+**Host path detection**: Marina detects the actual host path for `/backup` by inspecting its own container mounts at startup, then uses this for bind mounts in temporary containers
 
 **Cron parser**: Uses `robfig/cron/v3` with 5-field standard format (minute hour dom month dow), not 6-field with seconds
 
@@ -192,7 +196,7 @@ See `docker-compose.example.yml` for a complete deployment example with:
 
 - Marina manager container with Docker socket access
 - Volume and database backup examples with labels
-- Staging directory mount for DB dumps
+- Host bind mount for staging directory
 - S3/local backend configuration
 
 ## Context
