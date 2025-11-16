@@ -28,7 +28,7 @@ export function TargetBadge({ targetId }: TargetBadgeProps) {
 
   return (
     <span
-      className="inline-flex rounded-full overflow-hidden border border-gray-300"
+      className="inline-flex items-center rounded-full overflow-hidden border border-gray-300"
       title={
         parsed.id ? `${parsed.type}:${parsed.name}:${parsed.id}` : targetId
       }
@@ -40,7 +40,7 @@ export function TargetBadge({ targetId }: TargetBadgeProps) {
       >
         {typeLabel[parsed.type]}
       </span>
-      <span className="bg-gray-100 px-2 py-0.5 text-sm text-gray-800">
+      <span className="bg-gray-100 px-2 py-0.5 text-xs text-gray-800">
         {parsed.name}
       </span>
     </span>
