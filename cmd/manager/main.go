@@ -15,6 +15,7 @@ import (
 	"github.com/polarfoxDev/marina/internal/database"
 	dockerd "github.com/polarfoxDev/marina/internal/docker"
 	"github.com/polarfoxDev/marina/internal/logging"
+	"github.com/polarfoxDev/marina/internal/model"
 	"github.com/polarfoxDev/marina/internal/runner"
 	"github.com/polarfoxDev/marina/internal/version"
 )
@@ -63,7 +64,7 @@ func main() {
 	}
 
 	// Build map of instances from config
-	instances := make(map[string]*backend.BackupInstance)
+	instances := make(map[model.InstanceID]backend.Backend)
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		hn, err := os.Hostname()
@@ -75,13 +76,42 @@ func main() {
 	}
 	logger.Info("using hostname %s for backups", nodeName)
 	for _, dest := range cfg.Instances {
-		instances[dest.ID] = &backend.BackupInstance{
-			ID:         dest.ID,
-			Repository: dest.Repository,
-			Env:        dest.Env,
-			Hostname:   nodeName,
+		var backendInstance backend.Backend
+		var backendErr error
+
+		// Parse resticresticTimeout (instance-specific or global default)
+		timeoutStr := dest.ResticTimeout
+		if timeoutStr == "" {
+			timeoutStr = cfg.ResticTimeout
 		}
-		logger.Info("loaded instance: %s -> %s", dest.ID, dest.Repository)
+		var resticTimeout time.Duration
+		if timeoutStr != "" {
+			resticTimeout, err = time.ParseDuration(timeoutStr)
+			if err != nil {
+				log.Fatalf("invalid restic timeout %q for instance %s: %v", timeoutStr, dest.ID, err)
+			}
+		}
+
+		if dest.CustomImage != "" {
+			// Use custom Docker image backend (hostBackupPath will be set after detection)
+			backendInstance, backendErr = backend.NewCustomImageBackend(dest.ID, dest.CustomImage, dest.Env, nodeName, "")
+			if backendErr != nil {
+				log.Fatalf("create custom image backend for %s: %v", dest.ID, backendErr)
+			}
+			logger.Info("loaded instance: %s -> custom image: %s", dest.ID, dest.CustomImage)
+		} else {
+			// Use Restic backend
+			backendInstance = &backend.ResticBackend{
+				ID:         dest.ID,
+				Repository: dest.Repository,
+				Env:        dest.Env,
+				Hostname:   nodeName,
+				Timeout:    resticTimeout,
+			}
+			logger.Info("loaded instance: %s -> restic: %s", dest.ID, dest.Repository)
+		}
+
+		instances[model.InstanceID(dest.ID)] = backendInstance
 	}
 
 	if len(instances) == 0 {
@@ -113,12 +143,28 @@ func main() {
 		log.Fatalf("docker client: %v", err)
 	}
 
+	// Detect the actual host path for /backup mount
+	hostBackupPath, err := dockerd.GetBackupHostPath(ctx, dcli)
+	if err != nil {
+		log.Fatalf("detect host backup path: %v", err)
+	}
+	logger.Info("detected host backup path: %s", hostBackupPath)
+
+	// Update custom image backends with host backup path
+	for id, instance := range instances {
+		if customBackend, ok := instance.(*backend.CustomImageBackend); ok {
+			customBackend.HostBackupPath = hostBackupPath
+			logger.Debug("updated instance %s with host backup path", id)
+		}
+	}
+
 	// Create runner with all instances
 	r := runner.New(
 		instances,
 		dcli,
 		logger,
 		db,
+		hostBackupPath,
 	)
 
 	// Start the scheduler
@@ -147,7 +193,7 @@ func main() {
 	// Start Docker event listener for real-time updates (if enabled)
 	enableEvents := envDefault("ENABLE_EVENTS", "true") == "true"
 	if enableEvents {
-		eventListener := dockerd.NewEventListener(dcli, triggerDiscovery, logger.Logf)
+		eventListener := dockerd.NewEventListener(dcli, triggerDiscovery, logger.Debug)
 		if err := eventListener.Start(ctx); err != nil {
 			logger.Error("failed to start event listener: %v", err)
 		} else {

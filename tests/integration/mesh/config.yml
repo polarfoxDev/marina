@@ -1,6 +1,6 @@
 instances:
   - id: backup2
-    repository: /backup/repo
+    repository: /repo
     schedule: "* * * * *" # Every minute for fast integration testing
     env:
       RESTIC_PASSWORD: testpass
@@ -8,6 +8,7 @@ instances:
 # Global defaults (can be overridden by labels)
 retention: "7d:4w:6m"
 stopAttached: true
+resticTimeout: "30s"
 
 mesh:
   nodeName: server2

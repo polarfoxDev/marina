@@ -18,7 +18,7 @@ services:
       - ./config-node1.yml:/app/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - marina-node1-data:/var/lib/marina
-      - marina-node1-backup:/backup
+      - ./staging-node1:/backup
     ports:
       - "8080:8080"  # Web UI accessible at http://localhost:8080
     networks:
@@ -39,7 +39,7 @@ services:
       - ./config-node2.yml:/app/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - marina-node2-data:/var/lib/marina
-      - marina-node2-backup:/backup
+      - ./staging-node2:/backup
     ports:
       - "8081:8080"  # Accessible at http://localhost:8081
     networks:
@@ -60,7 +60,7 @@ services:
       - ./config-node3.yml:/app/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - marina-node3-data:/var/lib/marina
-      - marina-node3-backup:/backup
+      - ./staging-node3:/backup
     ports:
       - "8082:8080"  # Accessible at http://localhost:8082
     networks:
@@ -82,11 +82,8 @@ services:
 
 volumes:
   marina-node1-data:
-  marina-node1-backup:
   marina-node2-data:
-  marina-node2-backup:
   marina-node3-data:
-  marina-node3-backup:
   app-data:
 
 networks:

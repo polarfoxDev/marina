@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-11-16
+
+### Added
+
+- Custom Docker image backend support as an alternative to Restic
+- `customImage` field in instance configuration to specify custom backup images
+- Custom image backend containers only have access to their instance's subfolder (`/backup/{instanceID}` mounted to `/backup`)
+- Backend interface to support multiple backup implementations
+- Example custom backup image with random failure simulation (75% success rate)
+- Environment variables `MARINA_INSTANCE_ID` and `MARINA_HOSTNAME` passed to custom images
+- Documentation and README for creating custom backup images
+- `resticTimeout` configuration option (global and per-instance) for backup operations with Go duration format (e.g., "5m", "30s", "1h")
+- Restic automatically runs `unlock` before backups to clear stale locks from previous runs
+
+### Changed
+
+- **BREAKING**: Staging directory (`/backup`) now requires host bind mount instead of Docker named volume
+- Marina now automatically detects the actual host path for `/backup` by inspecting its own container mounts
+- Volume copy containers now use host bind mount for staging directory
+- Removed automatic staging volume detection logic
+- All docker-compose examples updated to use `./staging:/backup` bind mount
+- Refactored backend to use interface-based design (Restic and Custom Image implementations)
+- `repository` field in config is now optional when using `customImage`
+- Backend initialization and execution now supports both Restic and custom Docker containers
+
 ## [0.3.1] - 2025-11-16
 
 ### Fixed
@@ -76,7 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/polarfoxDev/marina/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/polarfoxDev/marina/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/polarfoxDev/marina/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/polarfoxDev/marina/compare/v0.2.0...v0.2.1

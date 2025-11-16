@@ -9,7 +9,7 @@ services:
       # Docker socket access for discovery and container control
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Staging directory for DB dumps and volume copies (must be writable)
-      - marina-staging:/backup
+      - ./staging:/backup
       # Persistent data directory for logs and status database
       - marina-data:/var/lib/marina
       # Configuration file
@@ -120,10 +120,6 @@ services:
       - app-net
 
 volumes:
-  # Marina staging directory for DB dumps
-  marina-staging:
-    driver: local
-
   # PostgreSQL data volume (backed up via DB dump, not volume backup)
   postgres-data:
     driver: local

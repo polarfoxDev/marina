@@ -33,6 +33,7 @@ instances:
     repository: s3:https://fsn1.your-objectstorage.com/bucket
     schedule: "0 2 * * *" # Cron schedule for this instance's backups
     retention: "30d:12w:24m" # Optional: instance-specific retention
+    resticTimeout: "10m" # Optional: instance-specific timeout (default 5m)
     env:
       AWS_ACCESS_KEY_ID: ${AWS_KEY}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET}
@@ -46,6 +47,7 @@ instances:
 # Global defaults that can be overridden by instance config or Docker labels
 retention: "14d:8w:12m" # Format: daily:weekly:monthly
 stopAttached: true # Stop containers when backing up volumes
+resticTimeout: "60m" # Global timeout for backup operations (format: "5m", "30s", "1h")
 
 # Optional mesh configuration for multi-node federation
 mesh:
@@ -63,6 +65,7 @@ Environment variables in config.yml are expanded using `${VAR_NAME}` or `$VAR_NA
 - Schedule: Required per-instance in config.yml
 - Retention: Instance-specific (optional) > Global `retention` > Hardcoded default "7d:4w:6m"
 - StopAttached: Global `stopAttached` > Label > Hardcoded default false
+- Timeout: Instance-specific (optional) > Global `resticTimeout` > Hardcoded default "60m"
 
 ### Label-Driven Configuration
 
@@ -95,8 +98,9 @@ dev.polarfox.marina.dump.args: "--clean,--if-exists" # For postgres
 1. **Volume backups**:
 
    - Volume data copied to staging directory via temporary Alpine container with volume mounted read-only
-   - Temporary container started with both the source volume mounted at `/source` (read-only) and the staging volume (same as Marina's `/backup`) mounted at `/backup`
-   - Marina automatically detects its staging volume by inspecting its own container mounts
+   - Marina detects the actual host path for `/backup` by inspecting its own container mounts
+   - Temporary container started with source volume at `/source` (read-only) and host staging path bind mounted at `/backup`
+   - Marina's `/backup` directory must be mounted from the host filesystem (not a Docker volume)
    - Data copied using `cp -a` to preserve attributes into `/backup/volume/{name}/{timestamp}/`
    - Staging subdirectory cleaned up automatically after backup completes
    - If `stopAttached=true`, stops non-readonly mounted containers before backup
@@ -106,6 +110,7 @@ dev.polarfox.marina.dump.args: "--clean,--if-exists" # For postgres
 
    - Dump executed _inside DB container_ via `docker exec` to `/tmp/marina-{timestamp}`
    - Dump file copied out using Docker API to Marina's staging directory: `/backup/db/{name}/{timestamp}`
+   - Marina's `/backup` must be mounted from host filesystem
    - Staging directory cleaned up after backup
    - Pre/post hooks execute in the DB container itself
 
@@ -126,6 +131,8 @@ dev.polarfox.marina.dump.args: "--clean,--if-exists" # For postgres
 
 **Read-only volume detection**: Skips stopping containers mounted with `Mode == "ro"` to avoid unnecessary disruption
 
+**Host path detection**: Marina detects the actual host path for `/backup` by inspecting its own container mounts at startup, then uses this for bind mounts in temporary containers
+
 **Cron parser**: Uses `robfig/cron/v3` with 5-field standard format (minute hour dom month dow), not 6-field with seconds
 
 **Shell invocation**: All hooks/dumps use `/bin/sh -lc` to ensure login shell and proper env loading
@@ -133,6 +140,10 @@ dev.polarfox.marina.dump.args: "--clean,--if-exists" # For postgres
 **Error handling**: Errors bubble up but post-hooks/cleanup still execute via defer; runner logs job failures but continues scheduling
 
 **Environment variable expansion**: Config loader uses regex to match `${VAR}` and `$VAR` patterns and expands them using `os.Getenv()`
+
+**Restic unlock on backup**: Before each backup, Restic automatically runs `unlock` to clear stale locks from crashed or stopped processes
+
+**macOS compatibility**: On macOS with Docker Desktop, Restic repositories must use Docker named volumes (not bind mounts) to avoid "bad file descriptor" errors during fsync operations caused by the Docker VM filesystem layer (osxfs/VirtioFS)
 
 ## Development Workflows
 
@@ -192,7 +203,7 @@ See `docker-compose.example.yml` for a complete deployment example with:
 
 - Marina manager container with Docker socket access
 - Volume and database backup examples with labels
-- Staging directory mount for DB dumps
+- Host bind mount for staging directory
 - S3/local backend configuration
 
 ## Context

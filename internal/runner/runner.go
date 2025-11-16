@@ -22,23 +22,25 @@ type cleanupFunc func()
 
 type Runner struct {
 	Cron            *cron.Cron
-	BackupInstances map[string]*backend.BackupInstance // keyed by destination ID
+	BackupInstances map[model.InstanceID]backend.Backend // keyed by destination ID
 	Docker          *client.Client
 	Logger          *logging.Logger
 	DB              *database.DB // Database for persistent job status tracking
+	HostBackupPath  string       // Actual host path where /backup is mounted from
 
 	// Track scheduled jobs for dynamic updates
 	scheduledJobs map[model.InstanceID]cron.EntryID                 // instance ID -> cron entry ID
 	jobs          map[model.InstanceID]model.InstanceBackupSchedule // instance ID -> backup job config
 }
 
-func New(instances map[string]*backend.BackupInstance, docker *client.Client, logger *logging.Logger, db *database.DB) *Runner {
+func New(instances map[model.InstanceID]backend.Backend, docker *client.Client, logger *logging.Logger, db *database.DB, hostBackupPath string) *Runner {
 	return &Runner{
 		Cron:            cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
 		BackupInstances: instances,
 		Docker:          docker,
 		Logger:          logger,
 		DB:              db,
+		HostBackupPath:  hostBackupPath,
 		scheduledJobs:   make(map[model.InstanceID]cron.EntryID),
 		jobs:            make(map[model.InstanceID]model.InstanceBackupSchedule),
 	}
@@ -155,7 +157,7 @@ func (r *Runner) SyncBackups(newBackups []model.InstanceBackupSchedule) {
 	// Add or update jobs
 	for id, job := range newSet {
 		// Validate instance exists
-		if _, ok := r.BackupInstances[string(job.InstanceID)]; !ok {
+		if _, ok := r.BackupInstances[job.InstanceID]; !ok {
 			r.Logger.Warn("instance job %s references unknown instance, skipping", id)
 			continue
 		}
@@ -250,7 +252,7 @@ func (r *Runner) updateJobStatus(ctx context.Context, jobStatusID int, updateFn 
 
 // runInstanceBackup executes all backups for an instance in a single Restic operation
 func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackupSchedule, jobStatusID int, instanceLogger *logging.JobLogger) error {
-	dest, ok := r.BackupInstances[string(job.InstanceID)]
+	dest, ok := r.BackupInstances[job.InstanceID]
 	if !ok {
 		return fmt.Errorf("instance %q not found", job.InstanceID)
 	}
@@ -364,8 +366,13 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	allExcludes = deduplicate(allExcludes)
 
 	// Perform single backup with all collected paths
-	instanceLogger.Info("backing up %d paths to instance %s", len(allPaths), job.InstanceID)
-	_, err := dest.Backup(ctx, allPaths, allTags, allExcludes)
+	instanceLogger.Info("backing up %d paths to instance %s using backend %s: %s", len(allPaths), job.InstanceID, dest.GetType(), allPaths)
+	instanceLogger.Debug("backend timeout: %s", dest.GetResticTimeout())
+	if dest.GetType() == backend.BackendTypeCustomImage {
+		instanceLogger.Debug("using custom image %s, log output will appear as soon as execution finished", dest.GetImage())
+	}
+	logs, err := dest.Backup(ctx, allPaths, allTags, allExcludes)
+	instanceLogger.Debug("%s", logs)
 	if err != nil {
 		if updateErr := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
 			status.Status = model.StatusFailed
@@ -455,7 +462,7 @@ func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp 
 
 	// Copy volume data to staging
 	jobLogger.Info("copying volume %s to staging", target.VolumeName)
-	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, instanceID, timestamp, target.VolumeName, target.Paths)
+	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, r.HostBackupPath, instanceID, timestamp, target.VolumeName, target.Paths)
 	if err != nil {
 		// Restart stopped containers before returning error
 		for _, ctr := range stoppedContainers {

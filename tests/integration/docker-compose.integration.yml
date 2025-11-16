@@ -13,8 +13,9 @@ services:
       - MARINA_AUTH_PASSWORD=integration
     volumes:
       - data:/var/lib/marina/
-      - /var/run/docker.sock:/var/run/docker.sock
-      - marinabackup:/backup
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - repo:/repo
+      - ./staging:/backup
       - ./config.yml:/config/config.yml:ro
     depends_on:
       - postgres
@@ -79,7 +80,7 @@ services:
 
 volumes:
   data:
-  marinabackup:
+  repo:
   testdata:
     labels:
       dev.polarfox.marina.enabled: "true"

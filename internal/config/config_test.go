@@ -62,3 +62,39 @@ func TestLoad_EnvExpansionAndGetDestination(t *testing.T) {
 		t.Fatalf("GetDestination should return pointer to slice element")
 	}
 }
+
+func TestLoad_CustomImageBackend(t *testing.T) {
+	t.Setenv("CUSTOM_IMAGE", "myrepo/backup:latest")
+	t.Setenv("BACKUP_TOKEN", "token456")
+	cfgYAML := `
+ instances:
+   - id: custom-backup
+     customImage: ${CUSTOM_IMAGE}
+     schedule: "0 4 * * *"
+     env:
+       BACKUP_TOKEN: ${BACKUP_TOKEN}
+       BACKUP_ENDPOINT: https://backup.example.com
+ retention: "7d:4w:6m"
+`
+	p := writeTempConfig(t, cfgYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(cfg.Instances) != 1 {
+		t.Fatalf("expected 1 instance, got %d", len(cfg.Instances))
+	}
+	d, err := cfg.GetDestination("custom-backup")
+	if err != nil {
+		t.Fatalf("GetDestination error: %v", err)
+	}
+	if d.CustomImage != "myrepo/backup:latest" {
+		t.Fatalf("unexpected customImage: %q", d.CustomImage)
+	}
+	if d.Env["BACKUP_TOKEN"] != "token456" {
+		t.Fatalf("env not expanded: %#v", d.Env)
+	}
+	if d.Env["BACKUP_ENDPOINT"] != "https://backup.example.com" {
+		t.Fatalf("unexpected env: %#v", d.Env)
+	}
+}

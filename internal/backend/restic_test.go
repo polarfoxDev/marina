@@ -14,6 +14,14 @@ func createFakeRestic(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "restic")
 	script := `#!/bin/sh
+if [ "$1" = "forget" ]; then
+  echo "forget"
+  echo "--prune"
+  echo "--keep-daily 7"
+  echo "--keep-weekly 4"
+  echo "--keep-monthly 6"
+  exit 0
+fi
 if [ "$1" = "snapshots" ]; then
   exit 1
 fi
@@ -24,7 +32,8 @@ fi
 echo "REPO=$RESTIC_REPOSITORY"
 echo "PASS=$RESTIC_PASSWORD"
 echo "CUSTOM=$CUSTOM"
-echo "ARGS:$@"`
+echo "ARGS:$@"
+`
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		// fatal stops test immediately
 		t.Fatalf("write fake restic: %v", err)
@@ -38,7 +47,7 @@ echo "ARGS:$@"`
 func TestBackupAndRetentionBuildArgsAndEnv(t *testing.T) {
 	createFakeRestic(t)
 	ctx := context.Background()
-	b := &BackupInstance{ID: "test", Repository: "/repo/location", Env: map[string]string{"RESTIC_PASSWORD": "pw123", "CUSTOM": "abc"}}
+	b := &ResticBackend{ID: "test", Repository: "/repo/location", Env: map[string]string{"RESTIC_PASSWORD": "pw123", "CUSTOM": "abc"}}
 	if err := b.Init(ctx); err != nil {
 		// Should succeed after calling 'init' because 'snapshots' fails.
 		t.Fatalf("Init failed: %v", err)
@@ -51,7 +60,7 @@ func TestBackupAndRetentionBuildArgsAndEnv(t *testing.T) {
 		// validate env propagation
 		t.Fatalf("environment variables not passed correctly; output: %s", out)
 	}
-	if !strings.Contains(out, "ARGS:backup /data/path1 --tag tag1 --exclude ignore") {
+	if !strings.Contains(out, "ARGS:--cleanup-cache backup --verbose /data/path1 --tag tag1 --exclude ignore") {
 		t.Fatalf("arguments not built correctly; output: %s", out)
 	}
 	out2, err := b.DeleteOldSnapshots(ctx, 7, 4, 6)
