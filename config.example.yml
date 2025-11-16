@@ -22,6 +22,13 @@ instances:
       AWS_SECRET_ACCESS_KEY: ${DO_SPACES_SECRET}
       AWS_DEFAULT_REGION: nyc3
       RESTIC_PASSWORD: ${RESTIC_PASS}
+  # Example: Custom Docker image backend (alternative to Restic)
+  # - id: custom-backup
+  #   customImage: marina/example-backup:latest # Custom Docker image
+  #   schedule: "0 4 * * *" # Daily at 4 AM
+  #   env:
+  #     BACKUP_ENDPOINT: https://backup.example.com
+  #     BACKUP_TOKEN: ${BACKUP_TOKEN}
 
 # Global defaults (can be overridden by instance config or Docker labels)
 # If not specified here, Marina uses hardcoded defaults:

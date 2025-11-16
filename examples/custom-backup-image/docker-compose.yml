@@ -1,0 +1,45 @@
+services:
+  marina:
+    image: marina:test
+    container_name: marina
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - marina-staging:/backup
+      - marina-data:/var/lib/marina
+      - ./config.yml:/app/config.yml:ro
+    ports:
+      - "8080:8080"
+    environment:
+      RESTIC_PASSWORD: "${RESTIC_PASSWORD}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      DO_SPACES_KEY: "${DO_SPACES_KEY}"
+      DO_SPACES_SECRET: "${DO_SPACES_SECRET}"
+      CONFIG_FILE: "/app/config.yml"
+      DB_PATH: "/var/lib/marina/marina.db"
+      API_PORT: "8080"
+      NODE_NAME: "${HOSTNAME}"
+  
+  target:
+    image: alpine:3.20
+    container_name: backup-target
+    restart: unless-stopped
+    command: ["sh", "-lc", "dd if=/dev/urandom of=/mnt/data1/random.bin bs=1M count=10 && dd if=/dev/urandom of=/mnt/data2/random.bin bs=1M count=10 && sleep infinity"]
+    volumes:
+      - custom-data:/mnt/data1
+      - restic-data:/mnt/data2
+
+volumes:
+  marina-staging:
+  marina-data:
+  custom-data:
+    labels:
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.instanceID: "custom-backup"
+      dev.polarfox.marina.tags: "service:target,env:testing"
+  restic-data:
+    labels:
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.instanceID: "restic-backup"
+      dev.polarfox.marina.tags: "service:target,env:testing"

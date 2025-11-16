@@ -38,7 +38,7 @@ echo "ARGS:$@"`
 func TestBackupAndRetentionBuildArgsAndEnv(t *testing.T) {
 	createFakeRestic(t)
 	ctx := context.Background()
-	b := &BackupInstance{ID: "test", Repository: "/repo/location", Env: map[string]string{"RESTIC_PASSWORD": "pw123", "CUSTOM": "abc"}}
+	b := &ResticBackend{ID: "test", Repository: "/repo/location", Env: map[string]string{"RESTIC_PASSWORD": "pw123", "CUSTOM": "abc"}}
 	if err := b.Init(ctx); err != nil {
 		// Should succeed after calling 'init' because 'snapshots' fails.
 		t.Fatalf("Init failed: %v", err)

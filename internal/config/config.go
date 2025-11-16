@@ -25,11 +25,12 @@ type MeshConfig struct {
 
 // BackupInstance represents a backup instance configuration
 type BackupInstance struct {
-	ID         string            `yaml:"id"`
-	Repository string            `yaml:"repository"`
-	Schedule   string            `yaml:"schedule"`            // Cron schedule for this instance's backups
-	Retention  string            `yaml:"retention,omitempty"` // Optional: instance-specific retention (overrides global)
-	Env        map[string]string `yaml:"env"`
+	ID          string            `yaml:"id"`
+	Repository  string            `yaml:"repository,omitempty"`  // Restic repository (not used if customImage is set)
+	CustomImage string            `yaml:"customImage,omitempty"` // Custom Docker image for backup (alternative to Restic)
+	Schedule    string            `yaml:"schedule"`              // Cron schedule for this instance's backups
+	Retention   string            `yaml:"retention,omitempty"`   // Optional: instance-specific retention (overrides global)
+	Env         map[string]string `yaml:"env,omitempty"`         // Environment variables passed to backend
 }
 
 // Load reads and parses the config file, expanding environment variables
@@ -47,6 +48,7 @@ func Load(path string) (*Config, error) {
 	// Expand environment variables in all fields
 	for i := range cfg.Instances {
 		cfg.Instances[i].Repository = expandEnv(cfg.Instances[i].Repository)
+		cfg.Instances[i].CustomImage = expandEnv(cfg.Instances[i].CustomImage)
 		cfg.Instances[i].Schedule = expandEnv(cfg.Instances[i].Schedule)
 		cfg.Instances[i].Retention = expandEnv(cfg.Instances[i].Retention)
 		for k, v := range cfg.Instances[i].Env {

@@ -295,7 +295,11 @@ export function JobDetailsView() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
-                      <div className="break-all max-w-3xl">{log.message}</div>
+                      <div className="break-all max-w-3xl">
+                        {log.message.split("\n").map((line, i) => (
+                          <div key={i}>{line || "\u00A0"}</div>
+                        ))}
+                      </div>
                     </td>
                   </tr>
                 ))}
