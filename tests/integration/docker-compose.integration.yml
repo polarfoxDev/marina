@@ -10,6 +10,7 @@ services:
       - CONFIG_FILE=/config/config.yml
       - API_PORT=8080
       - NODE_NAME=integration-server
+      - MARINA_AUTH_PASSWORD=integration
     volumes:
       - data:/var/lib/marina/
       - /var/run/docker.sock:/var/run/docker.sock
@@ -21,6 +22,8 @@ services:
       - mariadb
       - mongo
       - volume-writer
+    networks:
+      - mesh
 
   postgres:
     image: postgres:16-alpine
@@ -83,3 +86,7 @@ volumes:
       dev.polarfox.marina.instanceID: "local-integration"
       dev.polarfox.marina.paths: "/"
       dev.polarfox.marina.stopAttached: "true"
+
+networks:
+  mesh:
+    external: true
