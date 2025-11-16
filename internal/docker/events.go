@@ -8,6 +8,7 @@ import (
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
+	"github.com/polarfoxDev/marina/internal/helpers"
 )
 
 // EventListener watches Docker events for container and volume lifecycle changes
@@ -90,7 +91,7 @@ func (e *EventListener) processEvents(ctx context.Context, eventsChan <-chan eve
 			return
 
 		case event := <-eventsChan:
-			e.logf("docker event: %s %s %s", event.Type, event.Action, event.Actor.ID[:12])
+			e.logf("docker event: %s %s %s", event.Type, event.Action, helpers.TruncateString(event.Actor.ID, 12))
 			triggerRediscovery()
 		}
 	}

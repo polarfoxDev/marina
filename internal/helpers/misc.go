@@ -20,3 +20,12 @@ func SplitCSV(v string) []string {
 	}
 	return out
 }
+
+// TruncateString safely truncates a string to a maximum length.
+// If the string is shorter than maxLen, it returns the original string.
+func TruncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
+}
