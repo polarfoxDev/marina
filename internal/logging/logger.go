@@ -210,6 +210,45 @@ func (l *Logger) QueryByJobID(jobStatusID int, limit int) ([]LogEntry, error) {
 	return entries, rows.Err()
 }
 
+// QuerySystemLogs retrieves system log entries (logs without job_status_id)
+// These are general application logs, not tied to specific backup jobs
+func (l *Logger) QuerySystemLogs(level LogLevel, limit int) ([]LogEntry, error) {
+	query := "SELECT id, timestamp, level, message, COALESCE(instance_id, ''), COALESCE(target_id, ''), COALESCE(job_status_id, 0), COALESCE(job_status_iid, 0) FROM logs WHERE job_status_id IS NULL"
+	args := []any{}
+
+	if level != "" {
+		query += " AND level = ?"
+		args = append(args, string(level))
+	}
+
+	query += " ORDER BY timestamp DESC"
+
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := l.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query system logs: %w", err)
+	}
+	defer rows.Close()
+
+	// Initialize as empty slice so JSON encodes as [] instead of null
+	entries := make([]LogEntry, 0)
+	for rows.Next() {
+		var e LogEntry
+		var levelStr string
+		if err := rows.Scan(&e.ID, &e.Timestamp, &levelStr, &e.Message, &e.InstanceID, &e.TargetID, &e.JobStatusID, &e.JobStatusIID); err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+		e.Level = LogLevel(levelStr)
+		entries = append(entries, e)
+	}
+
+	return entries, rows.Err()
+}
+
 // PruneOldLogs removes log entries older than the specified duration
 func (l *Logger) PruneOldLogs(olderThan time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-olderThan)

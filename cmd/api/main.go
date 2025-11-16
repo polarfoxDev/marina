@@ -163,6 +163,7 @@ func main() {
 
 			r.Route("/logs", func(r chi.Router) {
 				r.Get("/job/{id}", handleGetJobLogs(logger, meshClient))
+				r.Get("/system", handleGetSystemLogs(logger, meshClient, nodeName))
 			})
 		})
 	})
@@ -413,6 +414,105 @@ func handleGetJobLogs(logger *logging.Logger, meshClient *mesh.Client) http.Hand
 		}
 
 		respondJSON(w, logs)
+	}
+}
+
+// SystemLogEntryWithNode wraps a log entry with node information for mesh mode
+type SystemLogEntryWithNode struct {
+	ID        int64     `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	NodeName  string    `json:"nodeName"`
+}
+
+// GET /api/logs/system - Get system logs (logs without job_status_id) from local + mesh peers
+func handleGetSystemLogs(logger *logging.Logger, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.Background()
+
+		// Get limit from query parameter (default: 1000, max: 5000)
+		limitStr := r.URL.Query().Get("limit")
+		limit := 1000
+		if limitStr != "" {
+			if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+				limit = parsedLimit
+				if limit > 5000 {
+					limit = 5000
+				}
+			}
+		}
+
+		// Get level filter from query parameter (optional)
+		levelStr := r.URL.Query().Get("level")
+		var level logging.LogLevel
+		if levelStr != "" {
+			level = logging.LogLevel(levelStr)
+		}
+
+		// Check if this is a request from another Marina mesh node (prevent recursion)
+		if r.Header.Get("X-Marina-Mesh") == "true" {
+			// This is a mesh peer requesting data - only return local data
+			logs, err := logger.QuerySystemLogs(level, limit)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get system logs: %v", err), http.StatusInternalServerError)
+				return
+			}
+			respondJSON(w, logs)
+			return
+		}
+
+		// This is a regular user request - return local + mesh data with node info
+		logs, err := logger.QuerySystemLogs(level, limit)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get system logs: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Convert to SystemLogEntryWithNode format and add local node name
+		result := make([]SystemLogEntryWithNode, 0, len(logs))
+		for _, log := range logs {
+			result = append(result, SystemLogEntryWithNode{
+				ID:        log.ID,
+				Timestamp: log.Timestamp,
+				Level:     string(log.Level),
+				Message:   log.Message,
+				NodeName:  nodeName,
+			})
+		}
+
+		// Fetch system logs from mesh peers if configured
+		if meshClient != nil {
+			peerResults := meshClient.FetchAllSystemLogs(ctx, levelStr, limit)
+			for _, peerResult := range peerResults {
+				if peerResult.Error != nil {
+					// Don't log backoff errors as warnings - they're expected
+					errMsg := peerResult.Error.Error()
+					if !strings.Contains(errMsg, "peer in backoff") {
+						log.Printf("Warning: failed to fetch system logs from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					}
+					continue
+				}
+				// Add peer logs with their node name
+				for _, peerLog := range peerResult.Logs {
+					// Parse timestamp string to time.Time
+					ts, err := time.Parse(time.RFC3339, peerLog.Timestamp)
+					if err != nil {
+						// Fallback to current time if parsing fails
+						ts = time.Now()
+					}
+					result = append(result, SystemLogEntryWithNode{
+						ID:        peerLog.ID,
+						Timestamp: ts,
+						Level:     peerLog.Level,
+						Message:   peerLog.Message,
+						NodeName:  peerResult.NodeName,
+					})
+				}
+			}
+		}
+
+		respondJSON(w, result)
 	}
 }
 
