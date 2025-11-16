@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-11-16
+
+### Removed
+
+- **BREAKING**: Removed `dev.polarfox.marina.retention` label support. The label was parsed but never actually used - retention policies have always been controlled exclusively by instance configuration in `config.yml`. All targets within an instance share the same retention policy. Remove this label from your volumes and containers if present.
+
+### Changed
+
+- Clarified documentation that retention is configured per-instance, not per-target
+- Updated all examples to remove the unused retention label
+
 ## [0.2.0] - 2025-11-16
 
 ### Added
@@ -46,7 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/polarfoxDev/marina/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/polarfoxDev/marina/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/polarfoxDev/marina/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/polarfoxDev/marina/compare/v0.1.0...v0.1.1

@@ -66,18 +66,11 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 			stopAttached = *d.cfg.StopAttached
 		}
 
-		// Parse retention: label > config default > hardcoded default
-		retention := lbl[labels.LRetention]
-		if retention == "" && d.cfg.Retention != "" {
-			retention = d.cfg.Retention
-		}
-
 		t := model.BackupTarget{
 			ID:           "vol:" + v.Name,
 			Name:         v.Name,
 			Type:         model.TargetVolume,
 			InstanceID:   model.InstanceID(lbl[labels.LInstanceID]),
-			Retention:    helpers.ParseRetention(retention),
 			Exclude:      helpers.SplitCSV(lbl[labels.LExclude]),
 			Tags:         helpers.SplitCSV(lbl[labels.LTags]),
 			PreHook:      lbl[labels.LPreHook],
@@ -105,19 +98,12 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 			continue
 		}
 
-		// Parse retention: label > config default > hardcoded default
-		retention := lbl[labels.LRetention]
-		if retention == "" && d.cfg.Retention != "" {
-			retention = d.cfg.Retention
-		}
-
 		containerName := strings.TrimPrefix(firstNonEmpty(c.Names...), "/")
 		t := model.BackupTarget{
 			ID:          "dbs:" + containerName + ":" + c.ID,
 			Name:        containerName,
 			Type:        model.TargetDB,
 			InstanceID:  model.InstanceID(lbl[labels.LInstanceID]),
-			Retention:   helpers.ParseRetention(retention),
 			Exclude:     helpers.SplitCSV(lbl[labels.LExclude]),
 			Tags:        helpers.SplitCSV(lbl[labels.LTags]),
 			PreHook:     lbl[labels.LPreHook],

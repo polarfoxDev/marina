@@ -51,7 +51,6 @@ services:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.db: "postgres"
       dev.polarfox.marina.instanceID: "hetzner-s3"
-      dev.polarfox.marina.retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
       dev.polarfox.marina.tags: "service:postgres,env:production"
       # Optional: custom pg_dumpall arguments (--all-databases is default)
       # dev.polarfox.marina.dump.args: "--clean,--if-exists"
@@ -77,7 +76,6 @@ services:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.db: "mysql"
       dev.polarfox.marina.instanceID: "hetzner-s3"
-      dev.polarfox.marina.retention: "7d:4w:6m"
       dev.polarfox.marina.tags: "service:mysql,env:production"
       # Pass credentials via dump args (note: no spaces after commas)
       dev.polarfox.marina.dump.args: "-uroot,-p${MYSQL_ROOT_PASSWORD}"
@@ -99,7 +97,6 @@ services:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.db: "mariadb"
       dev.polarfox.marina.instanceID: "hetzner-s3"
-      dev.polarfox.marina.retention: "7d:4w:6m"
       dev.polarfox.marina.tags: "service:mariadb,env:production"
       # Pass credentials via dump args (note: no spaces after commas)
       dev.polarfox.marina.dump.args: "-uroot,-p${MARIADB_ROOT_PASSWORD}"
@@ -145,19 +142,18 @@ volumes:
     labels:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.instanceID: "hetzner-s3"
-      dev.polarfox.marina.retention: "14d:8w:12m"  # Keep more for user data
       dev.polarfox.marina.paths: "/"
       dev.polarfox.marina.stopAttached: "true"  # Stop app container during backup
       dev.polarfox.marina.tags: "type:uploads,env:production"
       dev.polarfox.marina.exclude: "*.tmp,cache/*,thumbnails/*"
 
-  # Application config volume - minimal labels (uses instance schedule and default retention)
+  # Application config volume - minimal labels (uses instance schedule and retention)
   app-config:
     driver: local
     labels:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.instanceID: "hetzner-s3"
-      # Schedule comes from instance config in config.yml
+      # Schedule and retention come from instance config in config.yml
       # Retention: uses 7d:4w:6m default if not specified
       # stopAttached: defaults to false
       dev.polarfox.marina.paths: "/"
