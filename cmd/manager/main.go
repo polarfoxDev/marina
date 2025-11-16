@@ -179,7 +179,7 @@ func main() {
 	// Start Docker event listener for real-time updates (if enabled)
 	enableEvents := envDefault("ENABLE_EVENTS", "true") == "true"
 	if enableEvents {
-		eventListener := dockerd.NewEventListener(dcli, triggerDiscovery, logger.Logf)
+		eventListener := dockerd.NewEventListener(dcli, triggerDiscovery, logger.Debug)
 		if err := eventListener.Start(ctx); err != nil {
 			logger.Error("failed to start event listener: %v", err)
 		} else {

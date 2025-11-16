@@ -1,6 +1,6 @@
 instances:
   - id: backup2
-    repository: /backup/repo
+    repository: /repo
     schedule: "* * * * *" # Every minute for fast integration testing
     env:
       RESTIC_PASSWORD: testpass

@@ -13,9 +13,10 @@ services:
       - MARINA_AUTH_PASSWORD=integration
     volumes:
       - data:/var/lib/marina/
-            - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./repo:/repo
       - ./staging:/backup
-      - ./config.yml:/app/config.yml:ro
+      - ./config.yml:/config/config.yml:ro
     depends_on:
       - postgres
       - mysql

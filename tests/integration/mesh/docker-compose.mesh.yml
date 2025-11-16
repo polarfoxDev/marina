@@ -13,7 +13,8 @@ services:
     volumes:
       - data2:/var/lib/marina/
       - /var/run/docker.sock:/var/run/docker.sock
-      - marinabackup2:/backup
+      - ./staging:/backup
+      - ./repo:/repo
       - ./config.yml:/config/config.yml:ro
     depends_on:
       - volume-writer
@@ -29,7 +30,6 @@ services:
 
 volumes:
   data2:
-  marinabackup2:
   testdata2:
     labels:
       dev.polarfox.marina.enabled: "true"
