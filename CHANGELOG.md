@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- System logs viewer in web UI with filtering by node and log level
+- API endpoint `GET /api/logs/system` to query system logs (non-job-specific logs)
+- Mesh federation support for system logs - view logs from all nodes in the cluster
+- Navigation link in header to access System Logs page
+
 ## [0.2.1] - 2025-11-16
 
 ### Removed
