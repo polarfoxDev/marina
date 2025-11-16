@@ -3,6 +3,7 @@ import type {
   InstanceBackupSchedule,
   JobStatus,
   LogEntry,
+  SystemLogEntry,
 } from "./types";
 
 // Use relative /api path - works with reverse proxies since they forward requests
@@ -94,6 +95,17 @@ export const api = {
       url += `&nodeUrl=${encodeURIComponent(nodeUrl)}`;
     }
     return fetchJson<LogEntry[]>(url);
+  },
+
+  async getSystemLogs(
+    limit = 1000,
+    level?: string
+  ): Promise<SystemLogEntry[]> {
+    let url = `${API_BASE}/logs/system?limit=${limit}`;
+    if (level) {
+      url += `&level=${encodeURIComponent(level)}`;
+    }
+    return fetchJson<SystemLogEntry[]>(url);
   },
 
   async login(password: string): Promise<{ token: string }> {
