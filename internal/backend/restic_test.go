@@ -14,6 +14,14 @@ func createFakeRestic(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "restic")
 	script := `#!/bin/sh
+if [ "$1" = "forget" ]; then
+  echo "forget"
+  echo "--prune"
+  echo "--keep-daily 7"
+  echo "--keep-weekly 4"
+  echo "--keep-monthly 6"
+  exit 0
+fi
 if [ "$1" = "snapshots" ]; then
   exit 1
 fi
