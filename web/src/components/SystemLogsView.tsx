@@ -48,6 +48,15 @@ export function SystemLogsView() {
     applyFilters();
   }, [applyFilters]);
 
+  // Auto-refresh logs every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadLogs();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [loadLogs]);
+
   // Get unique node names from logs
   const nodeNames = Array.from(
     new Set(logs.map((log) => log.nodeName).filter(Boolean))
