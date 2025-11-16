@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mesh federation support for system logs - view logs from all nodes
 - Navigation link in header to access System Logs page
 
+### Changed
+
+- Updated web UI badge design: gray background now starts after type label (vol/db) for improved visual clarity
+
 ## [0.2.1] - 2025-11-16
 
 ### Removed
