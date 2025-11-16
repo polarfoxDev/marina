@@ -16,6 +16,14 @@ type ResticBackend struct {
 	Hostname   string
 }
 
+func (instance *ResticBackend) GetType() BackendType {
+	return BackendTypeRestic
+}
+
+func (instance *ResticBackend) GetImage() string {
+	return ""
+}
+
 func (instance *ResticBackend) Close() error { return nil }
 
 func (instance *ResticBackend) runRestic(ctx context.Context, args ...string) (string, error) {

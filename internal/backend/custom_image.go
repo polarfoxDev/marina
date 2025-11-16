@@ -39,18 +39,29 @@ func NewCustomImageBackend(id, customImage string, env map[string]string, hostna
 	}, nil
 }
 
+func (b *CustomImageBackend) GetType() BackendType {
+	return BackendTypeCustomImage
+}
+
+func (b *CustomImageBackend) GetImage() string {
+	return b.CustomImage
+}
+
 // Init initializes the backend by pulling the custom image if needed
 func (b *CustomImageBackend) Init(ctx context.Context) error {
-	// Pull the image to ensure it's available
-	out, err := b.dockerClient.ImagePull(ctx, b.CustomImage, image.PullOptions{})
+	// Always try to pull to get latest; fallback to local image if pull fails.
+	rc, err := b.dockerClient.ImagePull(ctx, b.CustomImage, image.PullOptions{})
 	if err != nil {
-		return fmt.Errorf("pull custom image %s: %w", b.CustomImage, err)
+		// Check if image exists locally
+		_, inspectErr := b.dockerClient.ImageInspect(ctx, b.CustomImage)
+		if inspectErr != nil {
+			return fmt.Errorf("pull custom image %s failed: %w (also not present locally: %v)", b.CustomImage, err, inspectErr)
+		}
+		// Local image found; proceed without error
+		return nil
 	}
-	defer out.Close()
-	
-	// Drain the response to complete the pull
-	_, _ = io.Copy(io.Discard, out)
-	
+	defer rc.Close()
+	_, _ = io.Copy(io.Discard, rc)
 	return nil
 }
 
@@ -67,11 +78,11 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 	for k, v := range b.Env {
 		envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
 	}
-	
+
 	// Add metadata as environment variables
 	envVars = append(envVars, fmt.Sprintf("MARINA_HOSTNAME=%s", b.Hostname))
 	envVars = append(envVars, fmt.Sprintf("MARINA_INSTANCE_ID=%s", b.ID))
-	
+
 	// Create container configuration
 	config := &container.Config{
 		Image: b.CustomImage,
@@ -87,7 +98,7 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 				Target: "/backup",
 			},
 		},
-		AutoRemove: true,
+		AutoRemove: false,
 	}
 
 	// Create container with unique name
@@ -120,6 +131,7 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 		if status.StatusCode != 0 {
 			// Get logs to show what went wrong
 			logs, _ := b.getContainerLogs(ctx, containerID)
+			_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
 			return logs, fmt.Errorf("backup container exited with code %d", status.StatusCode)
 		}
 	}
@@ -129,6 +141,8 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 	if err != nil {
 		return "", fmt.Errorf("get container logs: %w", err)
 	}
+
+	_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
 
 	return logs, nil
 }

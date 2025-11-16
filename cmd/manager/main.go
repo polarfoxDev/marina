@@ -15,6 +15,7 @@ import (
 	"github.com/polarfoxDev/marina/internal/database"
 	dockerd "github.com/polarfoxDev/marina/internal/docker"
 	"github.com/polarfoxDev/marina/internal/logging"
+	"github.com/polarfoxDev/marina/internal/model"
 	"github.com/polarfoxDev/marina/internal/runner"
 	"github.com/polarfoxDev/marina/internal/version"
 )
@@ -63,7 +64,7 @@ func main() {
 	}
 
 	// Build map of instances from config
-	instances := make(map[string]backend.Backend)
+	instances := make(map[model.InstanceID]backend.Backend)
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		hn, err := os.Hostname()
@@ -77,7 +78,7 @@ func main() {
 	for _, dest := range cfg.Instances {
 		var backendInstance backend.Backend
 		var backendErr error
-		
+
 		if dest.CustomImage != "" {
 			// Use custom Docker image backend
 			backendInstance, backendErr = backend.NewCustomImageBackend(dest.ID, dest.CustomImage, dest.Env, nodeName)
@@ -95,8 +96,8 @@ func main() {
 			}
 			logger.Info("loaded instance: %s -> restic: %s", dest.ID, dest.Repository)
 		}
-		
-		instances[dest.ID] = backendInstance
+
+		instances[model.InstanceID(dest.ID)] = backendInstance
 	}
 
 	if len(instances) == 0 {

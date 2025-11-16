@@ -10,6 +10,11 @@ echo "Hostname: ${MARINA_HOSTNAME:-unknown}"
 echo "Timestamp: $(date -Iseconds)"
 echo ""
 
+# Display environment variables for debugging
+echo "Environment Variables:"
+env | sort
+echo ""
+
 # Check if /backup directory is mounted
 if [ ! -d "/backup" ]; then
     echo "ERROR: /backup directory not found"

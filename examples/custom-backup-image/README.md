@@ -15,6 +15,7 @@ When Marina uses a custom image backend:
 ## Example Script Behavior
 
 This example script:
+
 - Waits for 10 seconds to simulate backup work
 - Lists the contents of the `/backup` directory
 - **Randomly fails 25% of the time** to demonstrate error handling
@@ -68,6 +69,7 @@ To create your own custom backup image:
 ### Requirements
 
 Your custom image must:
+
 - Have a `/backup.sh` script (or configure a different entrypoint)
 - Read backup data from `/backup` directory
 - Exit with code 0 on success, non-zero on failure
@@ -76,6 +78,7 @@ Your custom image must:
 ### Optional Features
 
 Your custom image can optionally:
+
 - Implement its own retention policy (Marina won't enforce retention for custom images)
 - Use environment variables from the `env` section in config.yml
 - Access metadata via `MARINA_INSTANCE_ID` and `MARINA_HOSTNAME` environment variables
@@ -84,6 +87,7 @@ Your custom image can optionally:
 ## Real-World Examples
 
 Custom images are useful for:
+
 - **Cloud-native backups**: Upload directly to S3, GCS, Azure Blob, etc. with native SDKs
 - **Specialized backup tools**: Use tools like Borg, Duplicati, or proprietary backup software
 - **Custom workflows**: Implement pre/post-processing, notifications, or integrations
