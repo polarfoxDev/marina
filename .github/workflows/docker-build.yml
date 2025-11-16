@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     permissions:
       contents: read
       packages: write
@@ -96,7 +96,7 @@ jobs:
           retention-days: 1
 
   merge:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build-and-push
     if: inputs.push_to_registry
     permissions:
