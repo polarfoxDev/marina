@@ -49,8 +49,8 @@ stopAttached: true # Stop containers when backing up volumes
 
 # Optional mesh configuration for multi-node federation
 mesh:
-  nodeName: ${NODE_NAME}  # Optional custom node name
-  authPassword: ${MARINA_AUTH_PASSWORD}  # Password for mesh auth and dashboard
+  nodeName: ${NODE_NAME} # Optional custom node name
+  authPassword: ${MARINA_AUTH_PASSWORD} # Password for mesh auth and dashboard
   peers:
     - http://marina-node2:8080
     - http://marina-node3:8080
