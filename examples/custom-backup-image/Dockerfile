@@ -1,8 +1,5 @@
 FROM alpine:3.20
 
-# Install basic utilities
-RUN apk add --no-cache bash coreutils
-
 # Copy the backup script
 COPY backup.sh /backup.sh
 RUN chmod +x /backup.sh
