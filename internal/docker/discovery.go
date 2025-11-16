@@ -72,7 +72,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 			Type:         model.TargetVolume,
 			InstanceID:   model.InstanceID(lbl[labels.LInstanceID]),
 			Exclude:      helpers.SplitCSV(lbl[labels.LExclude]),
-			Tags:         helpers.SplitCSV(lbl[labels.LTags]),
+			Tags:         generateVolumeTags(v.Name, model.InstanceID(lbl[labels.LInstanceID])),
 			PreHook:      lbl[labels.LPreHook],
 			PostHook:     lbl[labels.LPostHook],
 			VolumeName:   v.Name,
@@ -105,7 +105,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 			Type:        model.TargetDB,
 			InstanceID:  model.InstanceID(lbl[labels.LInstanceID]),
 			Exclude:     helpers.SplitCSV(lbl[labels.LExclude]),
-			Tags:        helpers.SplitCSV(lbl[labels.LTags]),
+			Tags:        generateDBTags(containerName, strings.ToLower(db), model.InstanceID(lbl[labels.LInstanceID])),
 			PreHook:     lbl[labels.LPreHook],
 			PostHook:    lbl[labels.LPostHook],
 			DBKind:      strings.ToLower(db),
@@ -170,4 +170,23 @@ func firstNonEmpty(ss ...string) string {
 		}
 	}
 	return ""
+}
+
+// generateVolumeTags creates descriptive tags for a volume backup
+func generateVolumeTags(volumeName string, instanceID model.InstanceID) []string {
+	return []string{
+		"type:volume",
+		"volume:" + volumeName,
+		"instance:" + string(instanceID),
+	}
+}
+
+// generateDBTags creates descriptive tags for a database backup
+func generateDBTags(containerName, dbKind string, instanceID model.InstanceID) []string {
+	return []string{
+		"type:db",
+		"db:" + dbKind,
+		"container:" + containerName,
+		"instance:" + string(instanceID),
+	}
 }

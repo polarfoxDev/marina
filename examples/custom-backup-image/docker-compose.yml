@@ -37,9 +37,7 @@ volumes:
     labels:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.instanceID: "custom-backup"
-      dev.polarfox.marina.tags: "service:target,env:testing"
   restic-data:
     labels:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.instanceID: "restic-backup"
-      dev.polarfox.marina.tags: "service:target,env:testing"

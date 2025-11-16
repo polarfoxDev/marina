@@ -160,13 +160,16 @@ Marina uses labels with the namespace `dev.polarfox.marina.*` to configure backu
 
 ### Common Labels (volumes and containers)
 
-| Label                            | Required | Description                                       | Example                 |
-| -------------------------------- | -------- | ------------------------------------------------- | ----------------------- |
-| `dev.polarfox.marina.enabled`    | Yes      | Enable backup for this target                     | `"true"`                |
-| `dev.polarfox.marina.instanceID` | Yes      | Which backup destination to use (from config.yml) | `"local-backup"`        |
-| `dev.polarfox.marina.tags`       | No       | Comma-separated tags for Restic                   | `"env:prod,service:db"` |
-| `dev.polarfox.marina.pre`        | No       | Command to run before backup                      | `"echo Starting"`       |
-| `dev.polarfox.marina.post`       | No       | Command to run after backup                       | `"echo Done"`           |
+| Label                            | Required | Description                                       | Example          |
+| -------------------------------- | -------- | ------------------------------------------------- | ---------------- |
+| `dev.polarfox.marina.enabled`    | Yes      | Enable backup for this target                     | `"true"`         |
+| `dev.polarfox.marina.instanceID` | Yes      | Which backup destination to use (from config.yml) | `"local-backup"` |
+| `dev.polarfox.marina.pre`        | No       | Command to run before backup                      | `"echo Starting"`|
+| `dev.polarfox.marina.post`       | No       | Command to run after backup                       | `"echo Done"`    |
+
+> **Note**: Marina automatically generates descriptive tags for each backup:
+> - Volume backups: `type:volume`, `volume:<name>`, `instance:<id>`
+> - Database backups: `type:db`, `db:<kind>`, `container:<name>`, `instance:<id>`
 
 ### Volume-Specific Labels
 
