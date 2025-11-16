@@ -106,7 +106,7 @@ jobs:
 
       - name: Update VERSION file
         run: |
-          echo "${{ steps.new_version.outputs.version }}" > VERSION
+          echo -n "${{ steps.new_version.outputs.version }}" > VERSION
           echo "Updated VERSION to ${{ steps.new_version.outputs.version }}"
 
       - name: Update CHANGELOG.md
@@ -144,12 +144,6 @@ jobs:
             ### Changes
 
             ${{ steps.unreleased.outputs.changes }}
-
-            ### Checklist
-
-            - [x] VERSION file updated
-            - [x] CHANGELOG.md updated with release date
-            - [x] Comparison links updated
 
             **Merging this PR to main will trigger the automated release workflow.**
           base: main
