@@ -46,18 +46,22 @@ export function JobDetailsView() {
     }
   }, [jobId, instanceId]);
 
-  const loadLogs = useCallback(async () => {
-    if (!jobId) return;
+  const loadLogs = useCallback(
+    async (nodeUrl?: string) => {
+      if (!jobId) return;
 
-    try {
-      const numericJobId = parseInt(jobId, 10);
-      const logsData = await api.getJobLogs(numericJobId, 5000);
-      setLogs(logsData);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load logs");
-    }
-  }, [jobId]);
+      try {
+        const numericJobId = parseInt(jobId, 10);
+        // Pass nodeUrl if the job is from a remote node
+        const logsData = await api.getJobLogs(numericJobId, 5000, nodeUrl);
+        setLogs(logsData);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load logs");
+      }
+    },
+    [jobId]
+  );
 
   const applyFilters = useCallback(() => {
     let filtered = [...logs];
@@ -78,9 +82,14 @@ export function JobDetailsView() {
   useEffect(() => {
     if (jobId) {
       loadJobStatus();
-      loadLogs();
     }
-  }, [jobId, loadJobStatus, loadLogs]);
+  }, [jobId, loadJobStatus]);
+
+  // Load logs whenever jobId or nodeUrl changes (nodeUrl may be empty/undefined)
+  useEffect(() => {
+    if (!jobId) return;
+    loadLogs(job?.nodeUrl || undefined);
+  }, [jobId, job?.nodeUrl, loadLogs]);
 
   // Poll job status every 5 seconds when job is in progress
   useEffect(() => {
@@ -95,15 +104,15 @@ export function JobDetailsView() {
 
   // Separate effect for log polling when job is in progress
   useEffect(() => {
-    if (!jobId || job?.status !== "in_progress") return;
+    if (!jobId || !job || job.status !== "in_progress") return;
 
     // Poll logs every 1 second when job is in progress
     const logsInterval = setInterval(() => {
-      loadLogs();
+      loadLogs(job.nodeUrl || undefined);
     }, 1000);
 
     return () => clearInterval(logsInterval);
-  }, [jobId, job?.status, loadLogs]);
+  }, [jobId, job, job?.status, job?.nodeUrl, loadLogs]);
 
   useEffect(() => {
     applyFilters();
@@ -286,9 +295,7 @@ export function JobDetailsView() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
-                      <div className="break-all max-w-3xl">
-                        {log.message}
-                      </div>
+                      <div className="break-all max-w-3xl">{log.message}</div>
                     </td>
                   </tr>
                 ))}

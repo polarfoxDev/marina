@@ -1,7 +1,0 @@
-instances:
-  - id: local-backup
-    repository: /backup/repo
-    schedule: "* * * * *"
-    retention: "1d:1w:1m"
-    env:
-      RESTIC_PASSWORD: testpass

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
@@ -153,7 +154,7 @@ func CopyVolumeToStaging(ctx context.Context, cli *client.Client, instanceID, ti
 		AutoRemove: true,
 	}
 
-	resp, err := cli.ContainerCreate(ctx, config, hostConfig, nil, nil, fmt.Sprintf("marina-copy-%s", timestamp))
+	resp, err := cli.ContainerCreate(ctx, config, hostConfig, nil, nil, fmt.Sprintf("marina-copy-%d", time.Now().UnixNano()))
 	if err != nil {
 		return nil, fmt.Errorf("create copy container: %w", err)
 	}

@@ -1,0 +1,42 @@
+services:
+  marina:
+    image: marina:latest
+    container_name: marina-it-mesh-2
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - CONFIG_FILE=/config/config.yml
+      - API_PORT=8081
+      - NODE_NAME=integration-server
+      - MARINA_AUTH_PASSWORD=integration
+    volumes:
+      - data2:/var/lib/marina/
+      - /var/run/docker.sock:/var/run/docker.sock
+      - marinabackup2:/backup
+      - ./config.yml:/config/config.yml:ro
+    depends_on:
+      - volume-writer
+    networks:
+      - mesh
+
+  volume-writer:
+    image: alpine:3.20
+    container_name: volwriter-it-mesh-2
+    command: ["sh", "-lc", "printf 'hello-%s' $(date +%s) > /mnt/data/hello.txt && dd if=/dev/urandom of=/mnt/data/random.bin bs=1M count=2 && sleep infinity"]
+    volumes:
+      - testdata2:/mnt/data
+
+volumes:
+  data2:
+  marinabackup2:
+  testdata2:
+    labels:
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.instanceID: "backup2"
+      dev.polarfox.marina.paths: "/"
+      dev.polarfox.marina.stopAttached: "true"
+
+networks:
+  mesh:
+    external: true

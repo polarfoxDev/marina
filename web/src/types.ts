@@ -14,6 +14,7 @@ export interface Retention {
 
 export interface InstanceBackupSchedule {
   instanceId: string;
+  nodeName?: string; // Optional node name for mesh mode
   scheduleCron: string;
   nextRunAt: string | null;
   targetIds: string[];
@@ -28,6 +29,8 @@ export interface JobStatus {
   id: number;
   iid: number;
   instanceId: string;
+  nodeName?: string; // Name of the node (for mesh mode)
+  nodeUrl?: string; // URL of the node (for mesh mode, used to fetch logs)
   isActive: boolean;
   status: JobStatusState;
   lastStartedAt: string | null;

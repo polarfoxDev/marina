@@ -18,8 +18,11 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/polarfoxDev/marina/internal/auth"
+	"github.com/polarfoxDev/marina/internal/config"
 	"github.com/polarfoxDev/marina/internal/database"
 	"github.com/polarfoxDev/marina/internal/logging"
+	"github.com/polarfoxDev/marina/internal/mesh"
 	"github.com/polarfoxDev/marina/internal/version"
 )
 
@@ -31,6 +34,50 @@ func main() {
 	if *versionFlag {
 		fmt.Printf("marina api version %s\n", version.Version)
 		os.Exit(0)
+	}
+
+	// Load configuration to get mesh settings
+	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
+	if err != nil {
+		log.Printf("Warning: could not load config: %v", err)
+		cfg = &config.Config{} // Use empty config if not available
+	}
+
+	// Determine node name
+	nodeName := ""
+	if cfg.Mesh != nil && cfg.Mesh.NodeName != "" {
+		nodeName = cfg.Mesh.NodeName
+	} else {
+		nodeName = os.Getenv("NODE_NAME")
+		if nodeName == "" {
+			hn, err := os.Hostname()
+			if err != nil {
+				log.Printf("Warning: failed to get hostname: %v", err)
+				hn = "unknown"
+			}
+			nodeName = hn
+		}
+	}
+	log.Printf("Node name: %s", nodeName)
+
+	// Initialize authentication
+	var authPassword string
+	if cfg.Mesh != nil && cfg.Mesh.AuthPassword != "" {
+		authPassword = cfg.Mesh.AuthPassword
+	} else {
+		authPassword = os.Getenv("MARINA_AUTH_PASSWORD")
+	}
+	authHandler := auth.New(authPassword)
+	if authHandler.IsEnabled() {
+		log.Printf("Authentication enabled")
+	}
+
+	// Initialize mesh client if peers are configured
+	// Pass the password so mesh client can authenticate with peers
+	var meshClient *mesh.Client
+	if cfg.Mesh != nil && len(cfg.Mesh.Peers) > 0 {
+		meshClient = mesh.NewClient(cfg.Mesh.Peers, authPassword)
+		log.Printf("Mesh mode enabled with %d peer(s)", len(cfg.Mesh.Peers))
 	}
 
 	// Initialize unified database for both job status and logs
@@ -88,53 +135,42 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	// API routes
-	r.Route("/api", func(r chi.Router) {
-		r.Get("/health", handleHealth())
+	// Public routes (no auth required)
+	r.Group(func(r chi.Router) {
+		r.Post("/api/auth/login", handleLogin(authHandler))
+		r.Post("/api/auth/logout", handleLogout(authHandler))
+		r.Get("/api/auth/check", handleAuthCheck(authHandler))
+	})
 
-		r.Route("/status", func(r chi.Router) {
-			r.Get("/{instanceID}", handleGetJobStatus(db))
-		})
+	// Protected API routes (auth required if enabled)
+	r.Group(func(r chi.Router) {
+		// Apply auth middleware only if auth is enabled
+		if authHandler.IsEnabled() {
+			r.Use(authHandler.Middleware)
+		}
 
-		r.Route("/schedules", func(r chi.Router) {
-			r.Get("/", handleGetSchedules(db))
-		})
+		r.Route("/api", func(r chi.Router) {
+			r.Get("/health", handleHealth())
+			r.Get("/info", handleInfo(nodeName))
 
-		r.Route("/logs", func(r chi.Router) {
-			r.Get("/job/{id}", handleGetJobLogs(logger))
+			r.Route("/status", func(r chi.Router) {
+				r.Get("/{instanceID}", handleGetJobStatus(db, meshClient, nodeName))
+			})
+
+			r.Route("/schedules", func(r chi.Router) {
+				r.Get("/", handleGetSchedules(db, meshClient, nodeName))
+			})
+
+			r.Route("/logs", func(r chi.Router) {
+				r.Get("/job/{id}", handleGetJobLogs(logger, meshClient))
+			})
 		})
 	})
 
-	// Serve static files for React app (will be added later)
+	// Serve static files for React app (no auth required - login page needs to be accessible)
 	staticDir := envDefault("STATIC_DIR", "/app/web")
-	indexPath := filepath.Join(staticDir, "index.html")
-
-	// Only use file server if index.html exists
-	if _, err := os.Stat(indexPath); err == nil {
-		log.Printf("Serving static files from %s", staticDir)
-		fileServer(r, "/", http.Dir(staticDir))
-	} else {
-		// Placeholder for when no frontend is built yet
-		log.Printf("No frontend found at %s, serving placeholder", indexPath)
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `<!DOCTYPE html>
-<html>
-<head><title>Marina Status</title></head>
-<body>
-	<h1>Marina Backup Status API</h1>
-	<p>API is running. Frontend will be available here once built.</p>
-	<h2>Available Endpoints:</h2>
-	<ul>
-		<li><a href="/api/health">/api/health</a> - Health check</li>
-		<li><a href="/api/schedules">/api/schedules</a> - Backup schedules</li>
-		<li><a href="/api/status/{instanceID}">/api/status/{instanceID}</a> - Job statuses for an instance</li>
-		<li><a href="/api/logs/job/{id}">/api/logs/job/{id}</a> - Logs for a specific job (by job status ID)</li>
-	</ul>
-</body>
-</html>`)
-		})
-	}
+	log.Printf("Serving static files from %s", staticDir)
+	fileServer(r, "/", http.Dir(staticDir))
 
 	// Start server
 	port := envDefault("API_PORT", "8080")
@@ -190,22 +226,79 @@ func handleHealth() http.HandlerFunc {
 	}
 }
 
-// GET /api/schedules - Get all backup schedules
-func handleGetSchedules(db *database.DB) http.HandlerFunc {
+// Info endpoint - returns node information
+func handleInfo(nodeName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		respondJSON(w, map[string]interface{}{
+			"nodeName": nodeName,
+			"version":  version.Version,
+		})
+	}
+}
+
+// GET /api/schedules - Get all backup schedules (local + mesh peers)
+func handleGetSchedules(db *database.DB, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.Background()
+		
+		// Check if this is a request from another Marina mesh node (prevent recursion)
+		// Marina mesh clients set X-Marina-Mesh header
+		if r.Header.Get("X-Marina-Mesh") == "true" {
+			// This is a mesh peer requesting data - only return local data
+			schedules, err := db.GetAllSchedules(ctx)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get schedules: %v", err), http.StatusInternalServerError)
+				return
+			}
+			
+			// Add node name to local schedules
+			for _, schedule := range schedules {
+				schedule.NodeName = nodeName
+			}
+			
+			respondJSON(w, schedules)
+			return
+		}
+		
+		// This is a regular user request - return local + mesh data
+		// Fetch local schedules
 		schedules, err := db.GetAllSchedules(ctx)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get schedules: %v", err), http.StatusInternalServerError)
 			return
 		}
 
+		// Add node name to local schedules
+		for _, schedule := range schedules {
+			schedule.NodeName = nodeName
+		}
+
+		// Fetch schedules from mesh peers if configured
+		if meshClient != nil {
+			peerResults := meshClient.FetchAllSchedules(ctx)
+			for _, peerResult := range peerResults {
+				if peerResult.Error != nil {
+					// Don't log backoff errors as warnings - they're expected
+					errMsg := peerResult.Error.Error()
+					if !strings.Contains(errMsg, "peer in backoff") {
+						log.Printf("Warning: failed to fetch schedules from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					}
+					continue
+				}
+				// Add peer schedules with their node name
+				for _, peerSchedule := range peerResult.Schedules {
+					peerSchedule.NodeName = peerResult.NodeName
+					schedules = append(schedules, peerSchedule)
+				}
+			}
+		}
+
 		respondJSON(w, schedules)
 	}
 }
 
-// GET /api/status/{instanceID} - Get statuses for a specific instance
-func handleGetJobStatus(db *database.DB) http.HandlerFunc {
+// GET /api/status/{instanceID} - Get statuses for a specific instance (local + mesh peers)
+func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceID := chi.URLParam(r, "instanceID")
 		if instanceID == "" {
@@ -214,10 +307,59 @@ func handleGetJobStatus(db *database.DB) http.HandlerFunc {
 		}
 
 		ctx := context.Background()
+		
+		// Check if this is a request from another Marina mesh node (prevent recursion)
+		if r.Header.Get("X-Marina-Mesh") == "true" {
+			// This is a mesh peer requesting data - only return local data
+			statuses, err := db.GetJobStatus(ctx, instanceID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to get statuses: %v", err), http.StatusInternalServerError)
+				return
+			}
+			
+			// Add node information to local statuses
+			for i := range statuses {
+				statuses[i].NodeName = nodeName
+				statuses[i].NodeURL = "" // Empty for local node
+			}
+			
+			respondJSON(w, statuses)
+			return
+		}
+		
+		// This is a regular user request - return local + mesh data
+		// Fetch local statuses
 		statuses, err := db.GetJobStatus(ctx, instanceID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get statuses: %v", err), http.StatusInternalServerError)
 			return
+		}
+
+		// Add node information to local statuses
+		for i := range statuses {
+			statuses[i].NodeName = nodeName
+			statuses[i].NodeURL = "" // Empty for local node
+		}
+
+		// Fetch statuses from mesh peers if configured
+		if meshClient != nil {
+			peerResults := meshClient.FetchJobStatusFromPeers(ctx, instanceID)
+			for _, peerResult := range peerResults {
+				if peerResult.Error != nil {
+					// Don't log backoff errors as warnings - they're expected
+					errMsg := peerResult.Error.Error()
+					if !strings.Contains(errMsg, "peer in backoff") {
+						log.Printf("Warning: failed to fetch job statuses from peer %s: %v", peerResult.NodeURL, peerResult.Error)
+					}
+					continue
+				}
+				// Add peer statuses with their node information
+				for _, peerStatus := range peerResult.Statuses {
+					peerStatus.NodeName = peerResult.NodeName
+					peerStatus.NodeURL = peerResult.NodeURL
+					statuses = append(statuses, peerStatus)
+				}
+			}
 		}
 
 		respondJSON(w, statuses)
@@ -225,7 +367,8 @@ func handleGetJobStatus(db *database.DB) http.HandlerFunc {
 }
 
 // GET /api/logs/job/{id} - Get logs for a specific job status ID
-func handleGetJobLogs(logger *logging.Logger) http.HandlerFunc {
+// Supports fetching logs from remote nodes via query parameter nodeUrl
+func handleGetJobLogs(logger *logging.Logger, meshClient *mesh.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		if idStr == "" {
@@ -248,6 +391,21 @@ func handleGetJobLogs(logger *logging.Logger) http.HandlerFunc {
 			}
 		}
 
+		// Check if this is a request for remote node logs
+		nodeURL := r.URL.Query().Get("nodeUrl")
+		if nodeURL != "" && meshClient != nil {
+			// Fetch logs from remote node
+			ctx := context.Background()
+			peerLogs := meshClient.FetchJobLogs(ctx, nodeURL, jobID, limit)
+			if peerLogs.Error != nil {
+				http.Error(w, fmt.Sprintf("Failed to fetch logs from peer: %v", peerLogs.Error), http.StatusInternalServerError)
+				return
+			}
+			respondJSON(w, peerLogs.Logs)
+			return
+		}
+
+		// Fetch local logs
 		logs, err := logger.QueryByJobID(jobID, limit)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
@@ -273,4 +431,100 @@ func envDefault(k, def string) string {
 		return def
 	}
 	return v
+}
+
+// POST /api/auth/login - Login endpoint
+func handleLogin(authHandler *auth.Auth) http.HandlerFunc {
+return func(w http.ResponseWriter, r *http.Request) {
+// If auth is not enabled, always succeed
+if !authHandler.IsEnabled() {
+respondJSON(w, map[string]interface{}{
+"success": true,
+"message": "Authentication not required",
+})
+return
+}
+
+var req struct {
+Password string `json:"password"`
+}
+
+if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+http.Error(w, "Invalid request", http.StatusBadRequest)
+return
+}
+
+if !authHandler.ValidatePassword(req.Password) {
+http.Error(w, "Invalid password", http.StatusUnauthorized)
+return
+}
+
+// Generate token
+token, err := authHandler.GenerateToken()
+if err != nil {
+http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+return
+}
+
+// Set cookie
+http.SetCookie(w, &http.Cookie{
+Name:     auth.CookieName,
+Value:    token,
+Path:     "/",
+HttpOnly: true,
+Secure:   r.TLS != nil,
+SameSite: http.SameSiteLaxMode,
+MaxAge:   int(auth.TokenExpiry.Seconds()),
+})
+
+respondJSON(w, map[string]interface{}{
+"success": true,
+"token":   token,
+})
+}
+}
+
+// POST /api/auth/logout - Logout endpoint
+func handleLogout(authHandler *auth.Auth) http.HandlerFunc {
+return func(w http.ResponseWriter, r *http.Request) {
+token := authHandler.GetTokenFromRequest(r)
+if token != "" {
+authHandler.InvalidateToken(token)
+}
+
+// Clear cookie
+http.SetCookie(w, &http.Cookie{
+Name:     auth.CookieName,
+Value:    "",
+Path:     "/",
+HttpOnly: true,
+MaxAge:   -1,
+})
+
+respondJSON(w, map[string]interface{}{
+"success": true,
+})
+}
+}
+
+// GET /api/auth/check - Check if authentication is required and if user is authenticated
+func handleAuthCheck(authHandler *auth.Auth) http.HandlerFunc {
+return func(w http.ResponseWriter, r *http.Request) {
+response := map[string]interface{}{
+"authRequired": authHandler.IsEnabled(),
+"authenticated": false,
+}
+
+if authHandler.IsEnabled() {
+token := authHandler.GetTokenFromRequest(r)
+if token != "" && authHandler.ValidateToken(token) {
+response["authenticated"] = true
+}
+} else {
+// If auth is not required, consider user authenticated
+response["authenticated"] = true
+}
+
+respondJSON(w, response)
+}
 }
