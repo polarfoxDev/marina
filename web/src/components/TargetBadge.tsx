@@ -28,19 +28,21 @@ export function TargetBadge({ targetId }: TargetBadgeProps) {
 
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700"
+      className="inline-flex rounded-full overflow-hidden border border-gray-300"
       title={
         parsed.id ? `${parsed.type}:${parsed.name}:${parsed.id}` : targetId
       }
     >
       <span
-        className={`px-1 py-0.5 rounded text-xs font-semibold ${
+        className={`px-2 py-0.5 text-xs font-medium ${
           typeColors[parsed.type]
         }`}
       >
         {typeLabel[parsed.type]}
       </span>
-      <span>{parsed.name}</span>
+      <span className="bg-gray-100 px-2 py-0.5 text-sm text-gray-800">
+        {parsed.name}
+      </span>
     </span>
   );
 }
