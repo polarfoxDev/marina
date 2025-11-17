@@ -14,6 +14,7 @@ import (
 	"github.com/polarfoxDev/marina/internal/backend"
 	"github.com/polarfoxDev/marina/internal/database"
 	"github.com/polarfoxDev/marina/internal/docker"
+	"github.com/polarfoxDev/marina/internal/helpers"
 	"github.com/polarfoxDev/marina/internal/logging"
 	"github.com/polarfoxDev/marina/internal/model"
 )
@@ -365,13 +366,32 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	allTags = deduplicate(allTags)
 	allExcludes = deduplicate(allExcludes)
 
+	// Filter out 0-byte paths and non-existent files
+	filteredPaths, removedPaths := helpers.FilterNonEmptyPaths(allPaths)
+	if len(removedPaths) > 0 {
+		instanceLogger.Warn("filtered out %d empty or non-existent paths: %v", len(removedPaths), removedPaths)
+	}
+	
+	// Check if all paths were filtered out
+	if len(filteredPaths) == 0 {
+		if err := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
+			status.Status = model.StatusFailed
+			now := time.Now()
+			status.LastCompletedAt = &now
+			status.LastTargetsSuccessful = 0
+		}); err != nil {
+			r.Logger.Warn("failed to update job status: %v", err)
+		}
+		return fmt.Errorf("all paths were empty or non-existent after filtering")
+	}
+
 	// Perform single backup with all collected paths
-	instanceLogger.Info("backing up %d paths to instance %s using backend %s: %s", len(allPaths), job.InstanceID, dest.GetType(), allPaths)
+	instanceLogger.Info("backing up %d paths to instance %s using backend %s: %s", len(filteredPaths), job.InstanceID, dest.GetType(), filteredPaths)
 	instanceLogger.Debug("backend timeout: %s", dest.GetResticTimeout())
 	if dest.GetType() == backend.BackendTypeCustomImage {
 		instanceLogger.Debug("using custom image %s, log output will appear as soon as execution finished", dest.GetImage())
 	}
-	logs, err := dest.Backup(ctx, allPaths, allTags, allExcludes)
+	logs, err := dest.Backup(ctx, filteredPaths, allTags, allExcludes)
 	instanceLogger.Debug("%s", logs)
 	if err != nil {
 		if updateErr := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
