@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Web UI: Log level filter now defaults to INFO instead of "All Levels"
+- Web UI: Log level filtering now works hierarchically (DEBUG shows all logs, INFO shows INFO+WARN+ERROR, WARN shows WARN+ERROR, ERROR shows only ERROR)
+
 ### Fixed
 
 - Web UI now loads logs one final time after job completion to prevent missing final log entries when transitioning from "in_progress" to finished states
