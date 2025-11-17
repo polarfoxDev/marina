@@ -7,6 +7,7 @@ import {
   getLogLevelColor,
   getStatusColor,
   getStatusLabel,
+  shouldIncludeLogLevel,
 } from "../utils";
 import { TargetBadge } from "./TargetBadge";
 import { formatTargetName } from "../utils";
@@ -24,7 +25,7 @@ export function JobDetailsView() {
 
   // Filters
   const [targetFilter, setTargetFilter] = useState<string>("all");
-  const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("all");
+  const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("INFO");
 
   const loadJobStatus = useCallback(async () => {
     if (!jobId || !instanceId) return;
@@ -71,7 +72,9 @@ export function JobDetailsView() {
     }
 
     if (levelFilter !== "all") {
-      filtered = filtered.filter((log) => log.level === levelFilter);
+      filtered = filtered.filter((log) =>
+        shouldIncludeLogLevel(log.level, levelFilter)
+      );
     }
 
     setFilteredLogs(filtered);

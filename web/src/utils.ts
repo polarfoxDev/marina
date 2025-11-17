@@ -108,3 +108,26 @@ export function formatTargetName(targetId: string): string {
   const parsed = parseTargetId(targetId);
   return parsed ? parsed.name : targetId;
 }
+
+/**
+ * Checks if a log entry should be included based on hierarchical log level filtering.
+ * - DEBUG: includes all logs (DEBUG, INFO, WARN, ERROR)
+ * - INFO: includes INFO, WARN, ERROR
+ * - WARN: includes WARN, ERROR
+ * - ERROR: includes only ERROR
+ */
+export function shouldIncludeLogLevel(
+  logLevel: LogLevel,
+  filterLevel: LogLevel | "all"
+): boolean {
+  if (filterLevel === "all") return true;
+  
+  const levelHierarchy: Record<LogLevel, LogLevel[]> = {
+    DEBUG: ["DEBUG", "INFO", "WARN", "ERROR"],
+    INFO: ["INFO", "WARN", "ERROR"],
+    WARN: ["WARN", "ERROR"],
+    ERROR: ["ERROR"],
+  };
+  
+  return levelHierarchy[filterLevel].includes(logLevel);
+}
