@@ -3,7 +3,6 @@ package labels
 const (
 	LEnabled    = "dev.polarfox.marina.enabled"
 	LInstanceID = "dev.polarfox.marina.instanceID"
-	LExclude    = "dev.polarfox.marina.exclude"
 
 	// Volume
 	LPaths        = "dev.polarfox.marina.paths"

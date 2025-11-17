@@ -67,15 +67,12 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 		}
 
 		t := model.BackupTarget{
-			ID:           "vol:" + v.Name,
+			ID:           "volume:" + v.Name,
 			Name:         v.Name,
 			Type:         model.TargetVolume,
 			InstanceID:   model.InstanceID(lbl[labels.LInstanceID]),
-			Exclude:      helpers.SplitCSV(lbl[labels.LExclude]),
-			Tags:         generateVolumeTags(v.Name, model.InstanceID(lbl[labels.LInstanceID])),
 			PreHook:      lbl[labels.LPreHook],
 			PostHook:     lbl[labels.LPostHook],
-			VolumeName:   v.Name,
 			Paths:        helpers.SplitCSV(lbl[labels.LPaths]),
 			AttachedCtrs: slices.Clone(ctrUsing[v.Name]),
 			StopAttached: stopAttached,
@@ -100,12 +97,10 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 
 		containerName := strings.TrimPrefix(firstNonEmpty(c.Names...), "/")
 		t := model.BackupTarget{
-			ID:          "dbs:" + containerName + ":" + c.ID,
+			ID:          "db:" + containerName + ":" + c.ID,
 			Name:        containerName,
 			Type:        model.TargetDB,
 			InstanceID:  model.InstanceID(lbl[labels.LInstanceID]),
-			Exclude:     helpers.SplitCSV(lbl[labels.LExclude]),
-			Tags:        generateDBTags(containerName, strings.ToLower(db), model.InstanceID(lbl[labels.LInstanceID])),
 			PreHook:     lbl[labels.LPreHook],
 			PostHook:    lbl[labels.LPostHook],
 			DBKind:      strings.ToLower(db),
@@ -170,23 +165,4 @@ func firstNonEmpty(ss ...string) string {
 		}
 	}
 	return ""
-}
-
-// generateVolumeTags creates descriptive tags for a volume backup
-func generateVolumeTags(volumeName string, instanceID model.InstanceID) []string {
-	return []string{
-		"type:volume",
-		"volume:" + volumeName,
-		"instance:" + string(instanceID),
-	}
-}
-
-// generateDBTags creates descriptive tags for a database backup
-func generateDBTags(containerName, dbKind string, instanceID model.InstanceID) []string {
-	return []string{
-		"type:db",
-		"db:" + dbKind,
-		"container:" + containerName,
-		"instance:" + string(instanceID),
-	}
 }

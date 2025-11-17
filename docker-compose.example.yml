@@ -141,7 +141,6 @@ volumes:
       dev.polarfox.marina.paths: "/"
       dev.polarfox.marina.stopAttached: "true"  # Stop app container during backup
       dev.polarfox.marina.tags: "type:uploads,env:production"
-      dev.polarfox.marina.exclude: "*.tmp,cache/*,thumbnails/*"
 
   # Application config volume - minimal labels (uses instance schedule and retention)
   app-config:

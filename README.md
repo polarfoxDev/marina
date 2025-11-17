@@ -160,12 +160,12 @@ Marina uses labels with the namespace `dev.polarfox.marina.*` to configure backu
 
 ### Common Labels (volumes and containers)
 
-| Label                            | Required | Description                                       | Example          |
-| -------------------------------- | -------- | ------------------------------------------------- | ---------------- |
-| `dev.polarfox.marina.enabled`    | Yes      | Enable backup for this target                     | `"true"`         |
-| `dev.polarfox.marina.instanceID` | Yes      | Which backup destination to use (from config.yml) | `"local-backup"` |
-| `dev.polarfox.marina.pre`        | No       | Command to run before backup                      | `"echo Starting"`|
-| `dev.polarfox.marina.post`       | No       | Command to run after backup                       | `"echo Done"`    |
+| Label                            | Required | Description                                       | Example           |
+| -------------------------------- | -------- | ------------------------------------------------- | ----------------- |
+| `dev.polarfox.marina.enabled`    | Yes      | Enable backup for this target                     | `"true"`          |
+| `dev.polarfox.marina.instanceID` | Yes      | Which backup destination to use (from config.yml) | `"local-backup"`  |
+| `dev.polarfox.marina.pre`        | No       | Command to run before backup                      | `"echo Starting"` |
+| `dev.polarfox.marina.post`       | No       | Command to run after backup                       | `"echo Done"`     |
 
 > **Note**: Marina automatically generates descriptive tags for each backup:
 > - Volume backups: `type:volume`, `volume:<name>`, `instance:<id>`
@@ -177,7 +177,6 @@ Marina uses labels with the namespace `dev.polarfox.marina.*` to configure backu
 | ---------------------------------- | -------- | ----------------------------------------- | --------------------------- |
 | `dev.polarfox.marina.paths`        | No       | Paths to backup (relative to volume root) | `"/"` or `"uploads,config"` |
 | `dev.polarfox.marina.stopAttached` | No       | Stop attached containers during backup    | `"true"`                    |
-| `dev.polarfox.marina.exclude`      | No       | Exclude patterns (comma-separated)        | `"*.tmp,cache/*"`           |
 
 ### Database Container Labels
 

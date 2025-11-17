@@ -124,7 +124,7 @@ func (instance *ResticBackend) Init(ctx context.Context) error {
 	return err
 }
 
-func (instance *ResticBackend) Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error) {
+func (instance *ResticBackend) Backup(ctx context.Context, paths []string, tags []string) (string, error) {
 	// First, unlock the repository to clear any stale locks from previous runs
 	// This is safe - it only removes locks from processes that no longer exist
 	_, unlockErr := instance.runRestic(ctx, "unlock")
@@ -142,9 +142,7 @@ func (instance *ResticBackend) Backup(ctx context.Context, paths []string, tags 
 	for _, t := range tags {
 		args = append(args, "--tag", t)
 	}
-	for _, e := range excludes {
-		args = append(args, "--exclude", e)
-	}
+
 	return instance.runRestic(ctx, args...)
 }
 

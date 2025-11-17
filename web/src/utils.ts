@@ -20,7 +20,8 @@ export function formatRelativeTime(dateString: string | null): string {
   if (diffMs < 0) {
     if (diffMins < 1) return "Just now";
     if (diffMins < 60) return `in ${diffMins} minute${diffMins > 1 ? "s" : ""}`;
-    if (diffHours < 24) return `in ${diffHours} hour${diffHours > 1 ? "s" : ""}`;
+    if (diffHours < 24)
+      return `in ${diffHours} hour${diffHours > 1 ? "s" : ""}`;
     return `in ${diffDays} day${diffDays > 1 ? "s" : ""}`;
   }
 
@@ -77,25 +78,25 @@ export function getLogLevelColor(level: LogLevel): string {
 }
 
 interface ParsedTarget {
-  type: "vol" | "dbs";
+  type: "volume" | "db";
   name: string;
   id?: string;
 }
 
 export function parseTargetId(targetId: string): ParsedTarget | null {
-  // Format: vol:name or dbs:name:id
+  // Format: volume:name or db:name:id
   const parts = targetId.split(":");
 
-  if (parts[0] === "vol" && parts.length === 2) {
+  if (parts[0] === "volume" && parts.length === 2) {
     return {
-      type: "vol",
+      type: "volume",
       name: parts[1],
     };
   }
 
-  if (parts[0] === "dbs" && parts.length >= 3) {
+  if (parts[0] === "db" && parts.length >= 3) {
     return {
-      type: "dbs",
+      type: "db",
       name: parts[1],
       id: parts.slice(2).join(":"), // Rejoin in case ID contains colons
     };

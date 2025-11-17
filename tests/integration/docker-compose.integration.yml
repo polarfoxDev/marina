@@ -74,7 +74,7 @@ services:
   volume-writer:
     image: alpine:3.20
     container_name: volwriter-it
-    command: ["sh", "-lc", "printf 'hello-%s' $(date +%s) > /mnt/data/hello.txt && dd if=/dev/urandom of=/mnt/data/random.bin bs=1M count=100 && sleep infinity"]
+    command: ["sh", "-lc", "echo 'volume test data' > /mnt/data/test.txt && dd if=/dev/urandom of=/mnt/data/random.bin bs=1M count=100 && sleep infinity"]
     volumes:
       - testdata:/mnt/data
 
