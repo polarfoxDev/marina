@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { SystemLogEntry, LogLevel } from "../types";
-import { formatDate, getLogLevelColor } from "../utils";
+import { formatDate, getLogLevelColor, shouldIncludeLogLevel } from "../utils";
 
 export function SystemLogsView() {
   const [logs, setLogs] = useState<SystemLogEntry[]>([]);
@@ -11,7 +11,7 @@ export function SystemLogsView() {
 
   // Filters
   const [nodeFilter, setNodeFilter] = useState<string>("all");
-  const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("all");
+  const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("INFO");
 
   const loadLogs = useCallback(async () => {
     try {
@@ -34,7 +34,9 @@ export function SystemLogsView() {
     }
 
     if (levelFilter !== "all") {
-      filtered = filtered.filter((log) => log.level === levelFilter);
+      filtered = filtered.filter((log) =>
+        shouldIncludeLogLevel(log.level, levelFilter)
+      );
     }
 
     setFilteredLogs(filtered);

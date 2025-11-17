@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
-import type { JobStatus, LogEntry, LogLevel } from "../types";
+import type { JobStatus, JobStatusState, LogEntry, LogLevel } from "../types";
 import {
   formatDate,
   getLogLevelColor,
   getStatusColor,
   getStatusLabel,
+  shouldIncludeLogLevel,
 } from "../utils";
 import { TargetBadge } from "./TargetBadge";
 import { formatTargetName } from "../utils";
@@ -24,7 +25,7 @@ export function JobDetailsView() {
 
   // Filters
   const [targetFilter, setTargetFilter] = useState<string>("all");
-  const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("all");
+  const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("INFO");
 
   const loadJobStatus = useCallback(async () => {
     if (!jobId || !instanceId) return;
@@ -71,7 +72,9 @@ export function JobDetailsView() {
     }
 
     if (levelFilter !== "all") {
-      filtered = filtered.filter((log) => log.level === levelFilter);
+      filtered = filtered.filter((log) =>
+        shouldIncludeLogLevel(log.level, levelFilter)
+      );
     }
 
     setFilteredLogs(filtered);
@@ -91,6 +94,9 @@ export function JobDetailsView() {
     loadLogs(job?.nodeUrl || undefined);
   }, [jobId, job?.nodeUrl, loadLogs]);
 
+  // Track previous status to detect transitions
+  const [prevStatus, setPrevStatus] = useState<JobStatusState | null>(null);
+
   // Poll job status every 5 seconds when job is in progress
   useEffect(() => {
     if (!jobId || job?.status !== "in_progress") return;
@@ -101,6 +107,21 @@ export function JobDetailsView() {
 
     return () => clearInterval(statusInterval);
   }, [jobId, job?.status, loadJobStatus]);
+
+  // Detect status transitions from "in_progress" to finished state
+  // and load logs one final time to capture any remaining log entries
+  useEffect(() => {
+    if (!job) return;
+
+    // If previous status was "in_progress" and current status is not
+    if (prevStatus === "in_progress" && job.status !== "in_progress") {
+      // Load logs one final time after the job completes
+      loadLogs(job.nodeUrl || undefined);
+    }
+
+    // Update previous status
+    setPrevStatus(job.status);
+  }, [job, job?.status, job?.nodeUrl, prevStatus, loadLogs]);
 
   // Separate effect for log polling when job is in progress
   useEffect(() => {
