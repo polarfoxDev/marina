@@ -14,7 +14,7 @@ Marina now supports using custom Docker images as backup backends, providing an 
 │                                                              │
 │  ┌──────────────┐     ┌────────────────────────────────┐   │
 │  │  Discovery   │────▶│         Runner                 │   │
-│  │  (Labels)    │     │  - Schedules backups           │   │
+│  │ (config.yml) │     │  - Schedules backups           │   │
 │  └──────────────┘     │  - Prepares staging data       │   │
 │                       │  - Selects backend             │   │
 │                       └──────────┬─────────────────────┘   │

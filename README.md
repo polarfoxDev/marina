@@ -2,7 +2,7 @@
 
 **Docker-native backup orchestration using Restic**
 
-Marina is a backup orchestrator that discovers and backs up Docker volumes and databases based on Docker labels. It uses [Restic](https://restic.net/) as the backup backend and supports multiple backup destinations (S3, local, and any Restic-compatible storage). In addition, Marina supports custom Docker image backends for maximum flexibility.
+Marina is a backup orchestrator that backs up Docker volumes and databases based on configuration in config.yml. It uses [Restic](https://restic.net/) as the backup backend and supports multiple backup destinations (S3, local, and any Restic-compatible storage). In addition, Marina supports custom Docker image backends for maximum flexibility.
 
 ## Project Status
 
@@ -16,12 +16,12 @@ Planned features:
 
 ## Features
 
-- **Label-driven configuration**: Define backups using Docker labels on volumes and containers
+- **Config-driven targets**: Define backup targets in config.yml for easier management
 - **Multiple backup destinations**: S3, local filesystem, or any Restic repository
 - **Custom backup backends**: Use custom Docker images for alternative backup destinations
 - **Database dumps**: Native support for PostgreSQL, MySQL, MariaDB, MongoDB, and Redis
 - **Volume backups**: Back up Docker volumes with optional container stop/start
-- **Dynamic discovery**: Automatically detects new/removed containers and volumes
+- **Dynamic discovery**: Automatically verifies configured containers and volumes exist
 - **Flexible scheduling**: Per-destination cron schedules
 - **Retention policies**: Configurable daily/weekly/monthly retention per instance
 - **Pre/post hooks**: Execute commands before and after backups
@@ -33,7 +33,7 @@ Planned features:
 
 ### 1. Create a config file
 
-Create a `config.yml` file with your backup instances:
+Create a `config.yml` file with your backup instances and targets:
 
 ```yaml
 instances:
@@ -41,9 +41,18 @@ instances:
     repository: /mnt/backup/restic
     schedule: "0 2 * * *"  # Daily at 2 AM
     retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
-    resticTimeout: "10m"         # Optional: backup timeout for the restic command (default: 60m)
+    resticTimeout: "10m"   # Optional: backup timeout for the restic command (default: 60m)
     env:
       RESTIC_PASSWORD: your-restic-password
+    targets:
+      # Volume backups
+      - volume: app-data
+        paths: ["/"]
+        stopAttached: true
+      # Database backups
+      - db: postgres
+        dbKind: postgres
+        preHook: "psql -U myapp -c 'CHECKPOINT;'"
 
 # Optional global defaults
 stopAttached: true  # Stop containers when backing up volumes
@@ -58,9 +67,9 @@ mesh:
     - http://marina-node3:8080
 ```
 
-See [config.example.yml](config.example.yml) for more examples including S3 configuration.
+See [config.example.yml](config.example.yml) for more examples including S3 configuration and additional target options.
 
-### 2. Add backup labels to your docker-compose.yml
+### 2. Set up your docker-compose.yml
 
 ```yaml
 services:
@@ -81,39 +90,32 @@ services:
       - "8080:8080"
     environment:
       RESTIC_PASSWORD: "${RESTIC_PASSWORD}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
 
-  # Example: PostgreSQL database with backup labels
+  # Example: PostgreSQL database (container name must match config.yml)
   postgres:
     image: postgres:16-alpine
+    container_name: postgres  # Referenced in config.yml targets
     environment:
       POSTGRES_DB: myapp
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       PGPASSWORD: "${POSTGRES_PASSWORD}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    labels:
-      dev.polarfox.marina.enabled: "true"
-      dev.polarfox.marina.db: "postgres"
-      dev.polarfox.marina.instanceID: "local-backup"
 
-  # Example: Application with volume backup
+  # Example: Application with volumes (volume name must match config.yml)
   app:
     image: myapp:latest
     volumes:
-      - app-data:/app/data
+      - app-data:/app/data  # Referenced in config.yml targets
 
 volumes:
   marina-data:
   postgres-data:
-  
-  # Volume with backup labels
   app-data:
-    labels:
-      dev.polarfox.marina.enabled: "true"
-      dev.polarfox.marina.instanceID: "local-backup"
-      dev.polarfox.marina.paths: "/"
-      dev.polarfox.marina.stopAttached: "true"
 ```
+
+**Note**: Container and volume names must match those specified in your config.yml targets.
 
 ### 3. Start Marina
 
@@ -121,7 +123,7 @@ volumes:
 docker-compose up -d
 ```
 
-Marina will automatically discover and schedule backups for any volumes or containers with the appropriate labels.
+Marina will automatically verify and schedule backups for the configured targets.
 
 ### 4. Monitor backups
 
@@ -154,43 +156,46 @@ curl http://localhost:8080/api/status/local-backup | jq
 curl http://localhost:8080/api/logs/job/1 | jq
 ```
 
-## Docker Labels Reference
+## Configuration Reference
 
-Marina uses labels with the namespace `dev.polarfox.marina.*` to configure backups.
+Marina uses a single configuration file (`config.yml`) to define backup instances and their targets.
 
-### Common Labels (volumes and containers)
+### Target Configuration
 
-| Label                            | Required | Description                                       | Example           |
-| -------------------------------- | -------- | ------------------------------------------------- | ----------------- |
-| `dev.polarfox.marina.enabled`    | Yes      | Enable backup for this target                     | `"true"`          |
-| `dev.polarfox.marina.instanceID` | Yes      | Which backup destination to use (from config.yml) | `"local-backup"`  |
-| `dev.polarfox.marina.pre`        | No       | Command to run before backup                      | `"echo Starting"` |
-| `dev.polarfox.marina.post`       | No       | Command to run after backup                       | `"echo Done"`     |
+Each backup instance can have multiple targets configured:
+
+#### Volume Targets
+
+| Field          | Required | Description                                       | Example                  |
+| -------------- | -------- | ------------------------------------------------- | ------------------------ |
+| `volume`       | Yes      | Volume name (as shown in `docker volume ls`)      | `"app-data"`             |
+| `paths`        | No       | Paths to backup (relative to volume root)         | `["/", "/data"]`         |
+| `stopAttached` | No       | Stop attached containers during backup            | `true`                   |
+| `preHook`      | No       | Command to run before backup (in first container) | `"echo Starting"`        |
+| `postHook`     | No       | Command to run after backup (in first container)  | `"echo Done"`            |
+
+#### Database Targets
+
+| Field      | Required | Description                                          | Example                                                    |
+| ---------- | -------- | ---------------------------------------------------- | ---------------------------------------------------------- |
+| `db`       | Yes      | Container name (as shown in `docker ps`)             | `"postgres"`, `"my-mysql"`                                 |
+| `dbKind`   | Yes      | Database type                                        | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
+| `dumpArgs` | No       | Additional arguments for dump command                | `["--clean", "--if-exists"]` (PostgreSQL)                  |
+| `preHook`  | No       | Command to run before backup (inside DB container)   | `"psql -U myapp -c 'CHECKPOINT;'"`                         |
+| `postHook` | No       | Command to run after backup (inside DB container)    | `"echo Done"`                                              |
+
+**Important for MySQL/MariaDB**: Pass credentials via `dumpArgs` using `["-uroot", "-pPASSWORD"]` format. Do not set `MYSQL_PWD` environment variable as it interferes with container initialization.
 
 > **Note**: Marina automatically generates a single tag for each backup in the format `type:name` (e.g., `volume:mydata` for volume backups or `db:postgres` for database backups).
 
-### Volume-Specific Labels
-
-| Label                              | Required | Description                               | Example                     |
-| ---------------------------------- | -------- | ----------------------------------------- | --------------------------- |
-| `dev.polarfox.marina.paths`        | No       | Paths to backup (relative to volume root) | `"/"` or `"uploads,config"` |
-| `dev.polarfox.marina.stopAttached` | No       | Stop attached containers during backup    | `"true"`                    |
-
-### Database Container Labels
-
-| Label                           | Required | Description               | Example                                                                          |
-| ------------------------------- | -------- | ------------------------- | -------------------------------------------------------------------------------- |
-| `dev.polarfox.marina.db`        | Yes      | Database type             | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"`                       |
-| `dev.polarfox.marina.dump.args` | No       | Additional dump arguments | `"--clean,--if-exists"` (PostgreSQL)<br>`"-uroot,-p${PASSWORD}"` (MySQL/MariaDB) |
-
-**Important for MySQL/MariaDB**: Pass credentials via `dump.args` using `-uroot,-pPASSWORD` format (no spaces after commas). Do not set `MYSQL_PWD` environment variable as it interferes with container initialization.
-
 ## Configuration
 
-Marina uses a two-tier configuration approach:
+Marina uses a single configuration file (`config.yml`) that defines:
 
-1. **config.yml**: Defines backup instances (repositories, credentials, schedules) and optional mesh networking
-2. **Docker labels**: Define what to backup and target-specific settings
+1. **Backup instances**: Repositories, credentials, schedules, and retention policies
+2. **Backup targets**: Volumes and databases to back up for each instance
+3. **Global defaults**: Optional default values for all instances
+4. **Mesh networking**: Optional multi-node federation for unified monitoring
 
 ### Important: Staging Directory Mount
 

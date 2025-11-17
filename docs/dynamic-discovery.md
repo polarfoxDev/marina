@@ -1,6 +1,6 @@
 # Dynamic Discovery
 
-Marina supports dynamic discovery of backup targets, allowing containers and volumes to be created, destroyed, or have their labels changed while Marina is running.
+Marina supports dynamic discovery of backup targets, allowing containers and volumes to be created or destroyed while Marina is running. Configured targets are verified and scheduled automatically.
 
 ## How It Works
 
@@ -8,7 +8,7 @@ Marina uses two complementary mechanisms to detect changes:
 
 ### 1. Periodic Polling (Default: 30 seconds)
 
-Marina periodically scans Docker for containers and volumes with backup labels. This ensures all changes are eventually detected, even if events are missed.
+Marina periodically verifies that configured containers and volumes exist. This ensures all changes are eventually detected, even if events are missed.
 
 **Configure via environment variable:**
 
@@ -35,17 +35,18 @@ ENABLE_EVENTS=false # Rely only on periodic polling
 
 ### Adding/Updating Targets
 
-When Marina detects a new container or volume with backup labels, or when labels change:
+When Marina detects a container or volume that matches a configured target:
 
-- New targets are automatically scheduled
-- Changed schedules trigger rescheduling
-- Configuration changes (retention, hooks, etc.) are applied on next backup
+- Targets are automatically scheduled according to instance configuration
+- Changes to config.yml require Marina restart to take effect
+- Container/volume name changes require updating config.yml
 
 ### Removing Targets
 
-When a container is destroyed or a volume is removed:
+When a configured container is destroyed or volume is removed:
 
 - The scheduled backup job is automatically removed
+- Job is rescheduled when the container/volume is recreated
 - No cleanup of existing backups (use Restic manually if needed)
 
 ### Container Recreation
@@ -59,26 +60,18 @@ When using `docker-compose down && docker-compose up`:
 ## Testing Dynamic Discovery
 
 ```bash
-# Start Marina
+# Start Marina with configured targets in config.yml
 docker-compose up -d marina
 
-# Add a volume with backup labels
-docker volume create \
-  --label dev.polarfox.marina.enabled=true \
-  --label dev.polarfox.marina.schedule="*/5 * * * *" \
-  --label dev.polarfox.marina.instanceID=local-backup \
-  test-volume
+# Create a volume that matches a configured target
+docker volume create app-data
 
-# Watch Marina logs - should see "scheduled volume:test-volume"
+# Watch Marina logs - should see "scheduled volume:app-data"
 docker-compose logs -f marina
 
-# Update the schedule
-docker volume rm test-volume
-docker volume create \
-  --label dev.polarfox.marina.enabled=true \
-  --label dev.polarfox.marina.schedule="*/10 * * * *" \
-  --label dev.polarfox.marina.instanceID=local-backup \
-  test-volume
+# Remove and recreate the volume
+docker volume rm app-data
+docker volume create app-data
 
 # Marina will detect and reschedule automatically
 ```
@@ -93,12 +86,13 @@ docker volume create \
 
 ## Troubleshooting
 
-### Targets not updating
+### Targets not being scheduled
 
 1. Check Marina logs for discovery errors
-2. Verify labels are correct: `docker volume inspect <name>` or `docker inspect <container>`
-3. Ensure `ENABLE_EVENTS=true` (default)
-4. Manually trigger discovery by restarting Marina
+2. Verify container/volume names match those in config.yml exactly
+3. Use `docker volume ls` and `docker ps` to check names
+4. Ensure `ENABLE_EVENTS=true` (default)
+5. Manually trigger discovery by restarting Marina
 
 ### Too frequent rediscovery
 

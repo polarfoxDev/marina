@@ -14,9 +14,13 @@ instances:
     env:
       BACKUP_TOKEN: secret-token
       BACKUP_ENDPOINT: https://backup.example.com
+    targets:
+      - volume: my-data
+      - db: postgres
+        dbKind: postgres
 ```
 
-1. **Create your Docker image** with a `/backup.sh` script:
+2. **Create your Docker image** with a `/backup.sh` script:
 
 ```dockerfile
 FROM alpine:3.20
@@ -25,28 +29,20 @@ RUN chmod +x /backup.sh
 ENTRYPOINT ["/backup.sh"]
 ```
 
-1. **Label your volumes/containers** to use this instance:
-
-```yaml
-volumes:
-  my-data:
-    labels:
-      dev.polarfox.marina.enabled: "true"
-      dev.polarfox.marina.instanceID: "my-custom-backup"
-```
+3. **Ensure your containers/volumes exist** with names matching config.yml
 
 ## How It Works
 
 ### Backup Flow
 
-1. Marina discovers targets (volumes/databases) via Docker labels
-1. Marina stages backup data in `/backup/{instanceID}` directory on the host
-1. Marina creates a container using your custom image
-1. Only `/backup/{instanceID}` is mounted at `/backup` in the container (scoped to this instance)
-1. Your container's `/backup.sh` script executes
-1. Marina captures stdout/stderr for logs
-1. Container exit code determines success (0) or failure (non-zero)
-1. Container is automatically removed after completion
+1. Marina verifies configured targets (volumes/databases) exist
+2. Marina stages backup data in `/backup/{instanceID}` directory on the host
+3. Marina creates a container using your custom image
+4. Only `/backup/{instanceID}` is mounted at `/backup` in the container (scoped to this instance)
+5. Your container's `/backup.sh` script executes
+6. Marina captures stdout/stderr for logs
+7. Container exit code determines success (0) or failure (non-zero)
+8. Container is automatically removed after completion
 
 ### Custom Image Contract
 
@@ -212,9 +208,10 @@ docker run --rm \
 
 **"No backup data found":**
 
-- Verify volumes/databases have correct labels
+- Verify targets are configured in config.yml
 - Check that `instanceID` matches your config
 - Ensure Marina can access Docker socket
+- Verify container/volume names match exactly
 
 **Permissions errors:**
 
@@ -342,6 +339,5 @@ instances:
 ## See Also
 
 - [Configuration Reference](../README.md#configuration)
-- [Docker Labels Reference](../docs/labels.md)
 - [Example Custom Image](../examples/custom-backup-image/)
 - [Marina API Documentation](../docs/api.md)

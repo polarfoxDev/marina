@@ -16,9 +16,9 @@
 │                           ▼                                 │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │         Initial Discovery (Docker API)              │    │
-│  │  • Scan all volumes with marina labels              │    │
-│  │  • Scan all containers with marina labels           │    │
-│  │  • Build BackupTarget list                          │    │
+│  │  • Verify configured volumes exist                  │    │
+│  │  • Verify configured containers exist               │    │
+│  │  • Build BackupTarget list from config.yml         │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                           │                                 │
 │                           ▼                                 │

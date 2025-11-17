@@ -15,11 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING**: Replaced Docker label-based discovery with config.yml-based target specification
+  - All backup targets (volumes and databases) must now be defined in the `targets` field of each instance in config.yml
+  - Removed support for Docker labels (`dev.polarfox.marina.*`)
+  - Container and volume names in config.yml must match actual Docker container/volume names
+  - Discovery now verifies configured targets exist rather than scanning for labeled resources
+  - Simplified configuration: all backup settings now in one file instead of split between config.yml and docker-compose.yml
 - **BREAKING**: Removed `dev.polarfox.marina.tags` label - Marina now auto-generates a single tag for each backup
   - Volume backups: `volume:<name>`
   - Database backups: `db:<kind>`
 - Web UI: Log level filter now defaults to INFO instead of "All Levels"
 - Web UI: Log level filtering now works hierarchically (DEBUG shows all logs, INFO shows INFO+WARN+ERROR, WARN shows WARN+ERROR, ERROR shows only ERROR)
+
+### Removed
+
+- **BREAKING**: Removed `internal/labels` package (no longer needed)
+- **BREAKING**: Docker labels are no longer used for backup configuration
 
 ### Fixed
 
