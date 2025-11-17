@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Backup operations now filter out 0-byte files and non-existent paths before backing up (e.g., from failed database dumps)
+- Backup jobs log warnings when paths are filtered out, showing which paths were removed
+- Backup jobs fail gracefully if all paths are filtered out, preventing empty backups
+
 ## [0.4.1] - 2025-11-16
 
 ### Fixed
