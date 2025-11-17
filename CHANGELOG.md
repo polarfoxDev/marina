@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Web UI now loads logs one final time after job completion to prevent missing final log entries when transitioning from "in_progress" to finished states
+
 ## [0.4.1] - 2025-11-16
 
 ### Fixed
