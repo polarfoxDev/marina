@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Web UI now loads logs one final time after job completion to prevent missing final log entries when transitioning from "in_progress" to finished states
 
+## [0.4.1] - 2025-11-16
+
+### Fixed
+
+- Fixed panic when Docker events contain IDs shorter than 12 characters (slice bounds out of range error)
+- Web UI: "Next run" time now correctly displays future times (e.g., "in 5 minutes") instead of showing "Just now"
+
 ## [0.4.0] - 2025-11-16
 
 ### Added
@@ -105,7 +112,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/polarfoxDev/marina/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/polarfoxDev/marina/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/polarfoxDev/marina/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/polarfoxDev/marina/compare/v0.2.1...v0.3.0
