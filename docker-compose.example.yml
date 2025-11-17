@@ -51,7 +51,6 @@ services:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.db: "postgres"
       dev.polarfox.marina.instanceID: "hetzner-s3"
-      dev.polarfox.marina.tags: "service:postgres,env:production"
       # Optional: custom pg_dumpall arguments (--all-databases is default)
       # dev.polarfox.marina.dump.args: "--clean,--if-exists"
       # Optional: pre/post hooks for consistency
@@ -76,7 +75,6 @@ services:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.db: "mysql"
       dev.polarfox.marina.instanceID: "hetzner-s3"
-      dev.polarfox.marina.tags: "service:mysql,env:production"
       # Pass credentials via dump args (note: no spaces after commas)
       dev.polarfox.marina.dump.args: "-uroot,-p${MYSQL_ROOT_PASSWORD}"
     networks:
@@ -97,7 +95,6 @@ services:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.db: "mariadb"
       dev.polarfox.marina.instanceID: "hetzner-s3"
-      dev.polarfox.marina.tags: "service:mariadb,env:production"
       # Pass credentials via dump args (note: no spaces after commas)
       dev.polarfox.marina.dump.args: "-uroot,-p${MARIADB_ROOT_PASSWORD}"
       # Optional: custom mariadb-dump arguments (--all-databases is default)
@@ -140,7 +137,6 @@ volumes:
       dev.polarfox.marina.instanceID: "hetzner-s3"
       dev.polarfox.marina.paths: "/"
       dev.polarfox.marina.stopAttached: "true"  # Stop app container during backup
-      dev.polarfox.marina.tags: "type:uploads,env:production"
 
   # Application config volume - minimal labels (uses instance schedule and retention)
   app-config:
@@ -152,7 +148,6 @@ volumes:
       # Retention: uses 7d:4w:6m default if not specified
       # stopAttached: defaults to false
       dev.polarfox.marina.paths: "/"
-      dev.polarfox.marina.tags: "type:config,env:production"
 
 networks:
   backup-net:
