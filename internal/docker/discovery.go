@@ -12,7 +12,6 @@ import (
 
 	"github.com/polarfoxDev/marina/internal/config"
 	"github.com/polarfoxDev/marina/internal/helpers"
-	"github.com/polarfoxDev/marina/internal/labels"
 	"github.com/polarfoxDev/marina/internal/model"
 )
 
@@ -30,20 +29,34 @@ func NewDiscoverer(cfg *config.Config) (*Discoverer, error) {
 }
 
 func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedule, error) {
-	var targets []model.BackupTarget
-
-	// Volumes with labels
+	// Get all volumes and containers from Docker
 	vols, err := d.cli.VolumeList(ctx, volume.ListOptions{Filters: filters.NewArgs()})
 	if err != nil {
 		return nil, err
 	}
 
-	// Map: volumeName -> containers using it
-	ctrUsing := map[string][]string{}
 	containers, err := d.cli.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return nil, err
 	}
+
+	// Build maps for quick lookups
+	volumeMap := make(map[string]*volume.Volume)
+	for _, v := range vols.Volumes {
+		volumeMap[v.Name] = v
+	}
+
+	containerMap := make(map[string]container.Summary)
+	containersByName := make(map[string]container.Summary)
+	for _, c := range containers {
+		containerMap[c.ID] = c
+		// Store by name (without leading /)
+		name := strings.TrimPrefix(firstNonEmpty(c.Names...), "/")
+		containersByName[name] = c
+	}
+
+	// Map: volumeName -> containers using it
+	ctrUsing := map[string][]string{}
 	for _, c := range containers {
 		for _, m := range c.Mounts {
 			if m.Type == "volume" && m.Name != "" {
@@ -52,110 +65,105 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 		}
 	}
 
-	for _, v := range vols.Volumes {
-		lbl := v.Labels
-		if !helpers.ParseBool(lbl[labels.LEnabled]) {
-			continue
-		}
+	// Build backup schedules from config
+	var schedules []model.InstanceBackupSchedule
 
-		// Determine stopAttached: label > config default > hardcoded default (false)
-		stopAttached := false
-		if lbl[labels.LStopAttached] != "" {
-			stopAttached = helpers.ParseBool(lbl[labels.LStopAttached])
-		} else if d.cfg.StopAttached != nil {
-			stopAttached = *d.cfg.StopAttached
-		}
+	for _, inst := range d.cfg.Instances {
+		var targets []model.BackupTarget
 
-		t := model.BackupTarget{
-			ID:           "volume:" + v.Name,
-			Name:         v.Name,
-			Type:         model.TargetVolume,
-			InstanceID:   model.InstanceID(lbl[labels.LInstanceID]),
-			PreHook:      lbl[labels.LPreHook],
-			PostHook:     lbl[labels.LPostHook],
-			Paths:        helpers.SplitCSV(lbl[labels.LPaths]),
-			AttachedCtrs: slices.Clone(ctrUsing[v.Name]),
-			StopAttached: stopAttached,
-		}
-		if len(t.Paths) == 0 {
-			t.Paths = []string{"/"}
-		}
-		targets = append(targets, t)
-	}
-
-	// DB containers by labels
-	for _, c := range containers {
-		lbl := c.Labels
-		if !helpers.ParseBool(lbl[labels.LEnabled]) {
-			continue
-		}
-
-		db := lbl[labels.LDBKind]
-		if db == "" {
-			continue
-		}
-
-		containerName := strings.TrimPrefix(firstNonEmpty(c.Names...), "/")
-		t := model.BackupTarget{
-			ID:          "db:" + containerName + ":" + c.ID,
-			Name:        containerName,
-			Type:        model.TargetDB,
-			InstanceID:  model.InstanceID(lbl[labels.LInstanceID]),
-			PreHook:     lbl[labels.LPreHook],
-			PostHook:    lbl[labels.LPostHook],
-			DBKind:      strings.ToLower(db),
-			ContainerID: c.ID,
-			DumpArgs:    helpers.SplitCSV(lbl[labels.LDumpArgs]),
-		}
-		targets = append(targets, t)
-	}
-
-	// Group targets by instance and create InstanceBackupJobs
-	instanceMap := make(map[model.InstanceID]*model.InstanceBackupSchedule)
-
-	for _, t := range targets {
-		if _, exists := instanceMap[t.InstanceID]; !exists {
-			// Find the schedule and retention for this instance from config
-			schedule := ""
-			retention := ""
-			for _, inst := range d.cfg.Instances {
-				if inst.ID == string(t.InstanceID) {
-					schedule = inst.Schedule
-					retention = inst.Retention
-					break
+		for _, targetCfg := range inst.Targets {
+			if targetCfg.Volume != "" {
+				// Volume backup
+				vol, exists := volumeMap[targetCfg.Volume]
+				if !exists {
+					// Volume doesn't exist - skip with warning (could log this)
+					continue
 				}
-			}
 
-			// If instance doesn't specify retention, use global fallback
-			if retention == "" && d.cfg.Retention != "" {
-				retention = d.cfg.Retention
-			}
+				// Determine stopAttached: target config > global config > hardcoded default (false)
+				stopAttached := false
+				if targetCfg.StopAttached != nil {
+					stopAttached = *targetCfg.StopAttached
+				} else if d.cfg.StopAttached != nil {
+					stopAttached = *d.cfg.StopAttached
+				}
 
-			instanceMap[t.InstanceID] = &model.InstanceBackupSchedule{
-				InstanceID:   t.InstanceID,
-				ScheduleCron: schedule,
-				Targets:      []model.BackupTarget{},
-				Retention:    helpers.ParseRetention(retention),
+				paths := targetCfg.Paths
+				if len(paths) == 0 {
+					paths = []string{"/"}
+				}
+
+				t := model.BackupTarget{
+					ID:           "volume:" + vol.Name,
+					Name:         vol.Name,
+					Type:         model.TargetVolume,
+					InstanceID:   model.InstanceID(inst.ID),
+					PreHook:      targetCfg.PreHook,
+					PostHook:     targetCfg.PostHook,
+					Paths:        paths,
+					AttachedCtrs: slices.Clone(ctrUsing[vol.Name]),
+					StopAttached: stopAttached,
+				}
+				targets = append(targets, t)
+
+			} else if targetCfg.DB != "" {
+				// Database backup
+				ctr, exists := containersByName[targetCfg.DB]
+				if !exists {
+					// Container doesn't exist - skip with warning (could log this)
+					continue
+				}
+
+				if targetCfg.DBKind == "" {
+					// DBKind is required for database targets
+					continue
+				}
+
+				containerName := strings.TrimPrefix(firstNonEmpty(ctr.Names...), "/")
+				t := model.BackupTarget{
+					ID:          "db:" + containerName + ":" + ctr.ID,
+					Name:        containerName,
+					Type:        model.TargetDB,
+					InstanceID:  model.InstanceID(inst.ID),
+					PreHook:     targetCfg.PreHook,
+					PostHook:    targetCfg.PostHook,
+					DBKind:      strings.ToLower(targetCfg.DBKind),
+					ContainerID: ctr.ID,
+					DumpArgs:    targetCfg.DumpArgs,
+				}
+				targets = append(targets, t)
 			}
 		}
-		instanceMap[t.InstanceID].Targets = append(instanceMap[t.InstanceID].Targets, t)
-	}
 
-	// Convert map to slice
-	var jobs []model.InstanceBackupSchedule
-	for _, job := range instanceMap {
-		if job.ScheduleCron == "" {
-			// Skip instances without a schedule
+		// Skip instances with no valid targets
+		if len(targets) == 0 {
 			continue
 		}
-		if err := helpers.ValidateCron(job.ScheduleCron); err != nil {
-			// Skip instances with invalid schedules
+
+		// Validate schedule
+		if inst.Schedule == "" {
 			continue
 		}
-		jobs = append(jobs, *job)
+		if err := helpers.ValidateCron(inst.Schedule); err != nil {
+			continue
+		}
+
+		// Use instance retention or global fallback
+		retention := inst.Retention
+		if retention == "" && d.cfg.Retention != "" {
+			retention = d.cfg.Retention
+		}
+
+		schedule := model.InstanceBackupSchedule{
+			InstanceID:   model.InstanceID(inst.ID),
+			ScheduleCron: inst.Schedule,
+			Targets:      targets,
+			Retention:    helpers.ParseRetention(retention),
+		}
+		schedules = append(schedules, schedule)
 	}
 
-	return jobs, nil
+	return schedules, nil
 }
 
 func firstNonEmpty(ss ...string) string {
