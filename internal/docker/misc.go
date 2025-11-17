@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/polarfoxDev/marina/internal/logging"
 )
 
 func ExecInContainer(ctx context.Context, cli *client.Client, containerID string, cmd []string) (string, error) {
@@ -111,9 +113,9 @@ func IsContainerRunning(ctx context.Context, cli *client.Client, containerID str
 // hostBackupPath is the actual path on the host that /backup is mounted from.
 // Returns the paths to the staged data.
 // NOTE: Caller is responsible for cleaning up the staging directory after backup completes.
-func CopyVolumeToStaging(ctx context.Context, cli *client.Client, hostBackupPath, instanceID, timestamp, volumeName string, paths []string) ([]string, error) {
+func CopyVolumeToStaging(ctx context.Context, cli *client.Client, hostBackupPath, instanceID, timestamp, volumeName string, paths []string, logger *logging.JobLogger) ([]string, error) {
 	// Create a unique subdirectory in staging for this volume backup
-	stagingSubdir := fmt.Sprintf("%s/%s/vol/%s", instanceID, timestamp, volumeName)
+	stagingSubdir := fmt.Sprintf("%s/%s/volume/%s", instanceID, timestamp, volumeName)
 	stagingPath := filepath.Join("/backup", stagingSubdir)
 
 	// Ensure staging directory exists in Marina's filesystem
@@ -125,6 +127,19 @@ func CopyVolumeToStaging(ctx context.Context, cli *client.Client, hostBackupPath
 	config := &container.Config{
 		Image: "alpine:3.20",
 		Cmd:   []string{"sh", "-c", "sleep 300"}, // Keep container alive
+	}
+
+	// ensure config.Image is available locally
+	_, inspectErr := cli.ImageInspect(ctx, config.Image)
+	if inspectErr != nil {
+		rc, err := cli.ImagePull(ctx, config.Image, image.PullOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("pull alpine image: %w", err)
+		}
+		defer rc.Close()
+		if _, err := io.Copy(io.Discard, rc); err != nil {
+			return nil, fmt.Errorf("read image pull response: %w", err)
+		}
 	}
 
 	hostConfig := &container.HostConfig{
@@ -144,11 +159,13 @@ func CopyVolumeToStaging(ctx context.Context, cli *client.Client, hostBackupPath
 		AutoRemove: true,
 	}
 
-	resp, err := cli.ContainerCreate(ctx, config, hostConfig, nil, nil, fmt.Sprintf("marina-copy-%d", time.Now().UnixNano()))
+	containerName := fmt.Sprintf("marina-copy-%d", time.Now().UnixNano())
+	resp, err := cli.ContainerCreate(ctx, config, hostConfig, nil, nil, containerName)
 	if err != nil {
 		return nil, fmt.Errorf("create copy container: %w", err)
 	}
 	containerID := resp.ID
+	logger.Debug("started copy container %s for volume %s", containerName, volumeName)
 
 	// Ensure cleanup even if something goes wrong
 	defer func() {
@@ -178,8 +195,9 @@ func CopyVolumeToStaging(ctx context.Context, cli *client.Client, hostBackupPath
 			return nil, fmt.Errorf("create target dir for %s: %w", path, err)
 		}
 
-		// Use cp to preserve attributes and handle both files and directories
-		copyCmd := []string{"sh", "-c", fmt.Sprintf("cp -a %s %s", sourcePath, targetPath)}
+		copyCommand := fmt.Sprintf("cp -a '%s/.' '%s'", sourcePath, targetPath)
+		logger.Debug("executing copy command in container %s: %s", containerName, copyCommand)
+		copyCmd := []string{"sh", "-c", copyCommand}
 		if _, err := ExecInContainer(ctx, cli, containerID, copyCmd); err != nil {
 			return nil, fmt.Errorf("copy %s: %w", path, err)
 		}

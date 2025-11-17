@@ -67,15 +67,12 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 		}
 
 		t := model.BackupTarget{
-			ID:           "vol:" + v.Name,
+			ID:           "volume:" + v.Name,
 			Name:         v.Name,
 			Type:         model.TargetVolume,
 			InstanceID:   model.InstanceID(lbl[labels.LInstanceID]),
-			Exclude:      helpers.SplitCSV(lbl[labels.LExclude]),
-			Tags:         helpers.SplitCSV(lbl[labels.LTags]),
 			PreHook:      lbl[labels.LPreHook],
 			PostHook:     lbl[labels.LPostHook],
-			VolumeName:   v.Name,
 			Paths:        helpers.SplitCSV(lbl[labels.LPaths]),
 			AttachedCtrs: slices.Clone(ctrUsing[v.Name]),
 			StopAttached: stopAttached,
@@ -100,12 +97,10 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 
 		containerName := strings.TrimPrefix(firstNonEmpty(c.Names...), "/")
 		t := model.BackupTarget{
-			ID:          "dbs:" + containerName + ":" + c.ID,
+			ID:          "db:" + containerName + ":" + c.ID,
 			Name:        containerName,
 			Type:        model.TargetDB,
 			InstanceID:  model.InstanceID(lbl[labels.LInstanceID]),
-			Exclude:     helpers.SplitCSV(lbl[labels.LExclude]),
-			Tags:        helpers.SplitCSV(lbl[labels.LTags]),
 			PreHook:     lbl[labels.LPreHook],
 			PostHook:    lbl[labels.LPostHook],
 			DBKind:      strings.ToLower(db),

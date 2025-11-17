@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -281,10 +282,8 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	// Use instance start time as timestamp for all staged paths
 	timestamp := startTime.Format("20060102-150405")
 
-	// Collect all staging paths from all targets
 	var allPaths []string
 	var allTags []string
-	var allExcludes []string
 
 	// Track cleanup functions to defer
 	var cleanups []cleanupFunc
@@ -305,7 +304,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 
 		switch target.Type {
 		case model.TargetVolume:
-			paths, cleanup, err := r.prepareVolumeBackup(ctx, string(job.InstanceID), timestamp, target, targetLogger)
+			paths, cleanup, err := r.stageVolume(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
 				targetLogger.Warn("failed to prepare volume: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("volume:%s", target.Name))
@@ -317,7 +316,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 			}
 
 		case model.TargetDB:
-			path, cleanup, err := r.prepareDBBackup(ctx, string(job.InstanceID), timestamp, target, targetLogger)
+			path, cleanup, err := r.stageDatabase(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
 				targetLogger.Warn("failed to prepare db: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("db:%s", target.Name))
@@ -330,13 +329,12 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 
 		default:
 			targetLogger.Warn("unknown target type: %s", target.Type)
-			failedTargets = append(failedTargets, fmt.Sprintf("unknown:%s", target.Name))
+			failedTargets = append(failedTargets, fmt.Sprintf("%s:%s", target.Type, target.Name))
 			continue
 		}
 
-		// Collect tags and excludes from all targets
-		allTags = append(allTags, target.Tags...)
-		allExcludes = append(allExcludes, target.Exclude...)
+		// Collect tags from all targets
+		allTags = append(allTags, fmt.Sprintf("%s:%s", target.Type, target.Name))
 	}
 	// Check if all targets failed
 	if len(allPaths) == 0 {
@@ -359,11 +357,18 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	if len(failedTargets) > 0 {
 		instanceLogger.Warn("backup proceeding with %d/%d targets (%d failed: %v)",
 			len(allPaths), len(job.Targets), len(failedTargets), failedTargets)
+		// filter out tags of failed targets
+		filteredTags := []string{}
+		for _, tag := range allTags {
+			failed := slices.Contains(failedTargets, tag)
+			if !failed {
+				filteredTags = append(filteredTags, tag)
+			}
+		}
+		allTags = filteredTags
 	}
 
-	// Deduplicate tags and excludes
 	allTags = deduplicate(allTags)
-	allExcludes = deduplicate(allExcludes)
 
 	// Perform single backup with all collected paths
 	instanceLogger.Info("backing up %d paths to instance %s using backend %s: %s", len(allPaths), job.InstanceID, dest.GetType(), allPaths)
@@ -371,7 +376,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	if dest.GetType() == backend.BackendTypeCustomImage {
 		instanceLogger.Debug("using custom image %s, log output will appear as soon as execution finished", dest.GetImage())
 	}
-	logs, err := dest.Backup(ctx, allPaths, allTags, allExcludes)
+	logs, err := dest.Backup(ctx, allPaths, allTags)
 	instanceLogger.Debug("%s", logs)
 	if err != nil {
 		if updateErr := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
@@ -404,8 +409,8 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	return nil
 }
 
-// prepareVolumeBackup prepares a volume for backup and returns the staged paths and cleanup function
-func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) ([]string, cleanupFunc, error) {
+// stageVolume prepares a volume for backup and returns the staged paths and cleanup function
+func (r *Runner) stageVolume(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) ([]string, cleanupFunc, error) {
 	// Execute pre-hook in first attached container
 	if target.PreHook != "" && len(target.AttachedCtrs) > 0 {
 		jobLogger.Debug("executing pre-hook")
@@ -461,8 +466,8 @@ func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp 
 	}
 
 	// Copy volume data to staging
-	jobLogger.Info("copying volume %s to staging", target.VolumeName)
-	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, r.HostBackupPath, instanceID, timestamp, target.VolumeName, target.Paths)
+	jobLogger.Info("copying volume %s to staging", target.Name)
+	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, r.HostBackupPath, instanceID, timestamp, target.Name, target.Paths, jobLogger)
 	if err != nil {
 		// Restart stopped containers before returning error
 		for _, ctr := range stoppedContainers {
@@ -500,8 +505,8 @@ func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp 
 	return stagedPaths, cleanup, nil
 }
 
-// prepareDBBackup prepares a database backup and returns the staged path and cleanup function
-func (r *Runner) prepareDBBackup(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) (string, cleanupFunc, error) {
+// stageDatabase prepares a database backup and returns the staged path and cleanup function
+func (r *Runner) stageDatabase(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) (string, cleanupFunc, error) {
 	// Execute pre-hook
 	if target.PreHook != "" {
 		jobLogger.Debug("executing pre-hook")
@@ -534,7 +539,7 @@ func (r *Runner) prepareDBBackup(ctx context.Context, instanceID, timestamp stri
 	}
 
 	// Prepare host staging directory
-	hostStagingDir := filepath.Join("/backup", instanceID, timestamp, "dbs", target.Name)
+	hostStagingDir := filepath.Join("/backup", instanceID, timestamp, "db", target.Name)
 	if err := os.MkdirAll(hostStagingDir, 0o755); err != nil {
 		return "", nil, fmt.Errorf("prepare host staging: %w", err)
 	}

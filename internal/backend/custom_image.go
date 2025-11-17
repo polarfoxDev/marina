@@ -71,7 +71,7 @@ func (b *CustomImageBackend) Init(ctx context.Context) error {
 }
 
 // Backup performs the backup by starting a container with the custom image
-func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error) {
+func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []string) (string, error) {
 	// Build environment variables
 	envVars := []string{}
 	for k, v := range b.Env {

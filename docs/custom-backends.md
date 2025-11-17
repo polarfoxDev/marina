@@ -65,15 +65,15 @@ Marina internally stages data with this structure:
 /backup/
   └── {instance-id}/
       └── {timestamp}/
-          ├── vol/
+          ├── volume/
           │   └── {volume-name}/
           │       └── {paths}...
-          └── dbs/
+          └── db/
               └── {db-name}/
                   └── dump.sql (or .archive for MongoDB)
 ```
 
-Inside your custom container, access the data under `/backup/{timestamp}/vol/` and `/backup/{timestamp}/dbs/`, because `{instance-id}` is mounted at `/backup`.
+Inside your custom container, access the data under `/backup/{timestamp}/volume/` and `/backup/{timestamp}/db/`, because `{instance-id}` is mounted at `/backup`.
 
 ### Environment Variables
 
@@ -191,8 +191,8 @@ Test your custom image independently of Marina:
 
 ```bash
 # Create test data
-mkdir -p /tmp/test-backup/vol/test-vol
-echo "test data" > /tmp/test-backup/vol/test-vol/file.txt
+mkdir -p /tmp/test-backup/volume/test-vol
+echo "test data" > /tmp/test-backup/volume/test-vol/file.txt
 
 # Run your image
 docker run --rm \
