@@ -167,9 +167,7 @@ Marina uses labels with the namespace `dev.polarfox.marina.*` to configure backu
 | `dev.polarfox.marina.pre`        | No       | Command to run before backup                      | `"echo Starting"` |
 | `dev.polarfox.marina.post`       | No       | Command to run after backup                       | `"echo Done"`     |
 
-> **Note**: Marina automatically generates descriptive tags for each backup:
-> - Volume backups: `type:volume`, `volume:<name>`, `instance:<id>`
-> - Database backups: `type:db`, `db:<kind>`, `container:<name>`, `instance:<id>`
+> **Note**: Marina automatically generates a single tag for each backup in the format `type:name` (e.g., `volume:mydata` for volume backups or `db:postgres` for database backups).
 
 ### Volume-Specific Labels
 
