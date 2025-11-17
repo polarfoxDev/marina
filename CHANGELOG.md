@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING**: Removed `dev.polarfox.marina.tags` label - Marina now auto-generates descriptive tags for each backup
-  - Volume backups: `type:volume`, `volume:<name>`, `instance:<id>`
-  - Database backups: `type:db`, `db:<kind>`, `container:<name>`, `instance:<id>`
+- **BREAKING**: Removed `dev.polarfox.marina.tags` label - Marina now auto-generates a single tag for each backup
+  - Volume backups: `volume:<name>`
+  - Database backups: `db:<kind>`
 
 ### Fixed
 
