@@ -33,11 +33,7 @@ services:
 
 volumes:
   app-data:
+  # Volume names referenced in config.yml targets
   custom-data:
-    labels:
-      dev.polarfox.marina.enabled: "true"
-      dev.polarfox.marina.instanceID: "custom-backup"
   restic-data:
-    labels:
-      dev.polarfox.marina.enabled: "true"
-      dev.polarfox.marina.instanceID: "restic-backup"
+
