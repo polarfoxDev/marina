@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
-import { SchedulesView } from "./components/SchedulesView";
-import { JobStatusesView } from "./components/JobStatusesView";
-import { JobDetailsView } from "./components/JobDetailsView";
-import { SystemLogsView } from "./components/SystemLogsView";
-import { LoginView } from "./components/LoginView";
+import { SchedulesView } from "./views/SchedulesView";
+import { JobStatusesView } from "./views/JobStatusesView";
+import { JobDetailsView } from "./views/JobDetailsView";
+import { SystemLogsView } from "./views/SystemLogsView";
+import { LoginView } from "./views/LoginView";
+import { Button } from "./components/ui/button";
 
 function App() {
   const [authRequired, setAuthRequired] = useState<boolean | null>(null);
@@ -95,12 +96,9 @@ function App() {
                 </nav>
               </div>
               {authRequired && authenticated && (
-                <button
-                  onClick={handleLogout}
-                  className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-                >
+                <Button variant="ghost" onClick={handleLogout}>
                   Logout
-                </button>
+                </Button>
               )}
             </div>
           </div>

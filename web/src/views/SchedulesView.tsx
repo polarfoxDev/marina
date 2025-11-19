@@ -5,10 +5,11 @@ import type { InstanceBackupSchedule } from "../types";
 import {
   formatDate,
   formatRelativeTime,
-  getStatusColor,
   getStatusLabel,
 } from "../utils";
-import { TargetBadge } from "./TargetBadge";
+import { TargetBadge } from "../components/TargetBadge";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
 
 // Group schedules by node name
 function groupSchedulesByNode(schedules: InstanceBackupSchedule[]): Map<string, InstanceBackupSchedule[]> {
@@ -23,6 +24,14 @@ function groupSchedulesByNode(schedules: InstanceBackupSchedule[]): Map<string, 
   }
   
   return grouped;
+}
+
+// Map job status to badge variant
+function getStatusBadgeVariant(status: string): "default" | "success" | "destructive" | "warning" | "secondary" {
+  if (status === "completed") return "success";
+  if (status === "failed") return "destructive";
+  if (status === "running") return "warning";
+  return "secondary";
 }
 
 export function SchedulesView() {
@@ -110,27 +119,28 @@ export function SchedulesView() {
                     <Link
                       key={`${nodeName}-${schedule.instanceId}`}
                       to={`/instance/${schedule.instanceId}`}
-                      className="block bg-white rounded-lg shadow hover:shadow-lg transition-shadow"
+                      className="block transition-all hover:scale-[1.02]"
                     >
-                      <div className="p-6">
-                        <div className="flex items-center justify-between mb-2">
-                          <h2 className="text-xl font-semibold text-gray-900">
-                            {schedule.instanceId}
-                          </h2>
-                          <span
-                            className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                              schedule.latestJobStatus
-                                ? getStatusColor(schedule.latestJobStatus)
-                                : "text-gray-700 bg-gray-100"
-                            }`}
-                          >
-                            {schedule.latestJobStatus
-                              ? getStatusLabel(schedule.latestJobStatus)
-                              : "Scheduled"}
-                          </span>
-                        </div>
-
-                        <div className="space-y-3 text-sm">
+                      <Card className="h-full hover:shadow-lg transition-shadow">
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-xl">
+                              {schedule.instanceId}
+                            </CardTitle>
+                            <Badge
+                              variant={
+                                schedule.latestJobStatus
+                                  ? getStatusBadgeVariant(schedule.latestJobStatus)
+                                  : "secondary"
+                              }
+                            >
+                              {schedule.latestJobStatus
+                                ? getStatusLabel(schedule.latestJobStatus)
+                                : "Scheduled"}
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-3 text-sm">
                           <div>
                             <span className="text-gray-500">Schedule:</span>
                             <span className="ml-2 font-mono text-gray-900">
@@ -182,24 +192,24 @@ export function SchedulesView() {
                               </div>
                             </div>
                           </div>
-                        </div>
 
-                        {schedule.targetIds.length > 0 && (
-                          <div className="mt-4 pt-4 border-t border-gray-200">
-                            <div className="text-xs text-gray-500 mb-2">Targets:</div>
-                            <div className="flex flex-wrap gap-1">
-                              {schedule.targetIds.slice(0, 4).map((targetId) => (
-                                <TargetBadge key={targetId} targetId={targetId} />
-                              ))}
-                              {schedule.targetIds.length > 4 && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                                  +{schedule.targetIds.length - 4} more
-                                </span>
-                              )}
+                          {schedule.targetIds.length > 0 && (
+                            <div className="pt-4 border-t border-gray-200">
+                              <div className="text-xs text-gray-500 mb-2">Targets:</div>
+                              <div className="flex flex-wrap gap-1">
+                                {schedule.targetIds.slice(0, 4).map((targetId) => (
+                                  <TargetBadge key={targetId} targetId={targetId} />
+                                ))}
+                                {schedule.targetIds.length > 4 && (
+                                  <Badge variant="secondary">
+                                    +{schedule.targetIds.length - 4} more
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
+                          )}
+                        </CardContent>
+                      </Card>
                     </Link>
                   ))}
                 </div>

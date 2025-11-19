@@ -9,7 +9,7 @@ import {
   getStatusLabel,
   shouldIncludeLogLevel,
 } from "../utils";
-import { TargetBadge } from "./TargetBadge";
+import { TargetBadge } from "../components/TargetBadge";
 import { formatTargetName } from "../utils";
 
 export function JobDetailsView() {
