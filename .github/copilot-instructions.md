@@ -22,7 +22,7 @@ Marina is a config-driven backup orchestrator that uses Restic as its backend. A
 - **`internal/database/database.go`**: SQLite database for persistent job status and log storage
 - **`internal/logging/logger.go`**: Structured logging with job-specific loggers that write to both stdout and database
 - **`cmd/manager/main.go`**: Entry point—loads config, creates backend instances, builds schedules, starts runner and cron scheduler
-- **`cmd/api/main.go`**: REST API server for querying job status, logs, and schedules; supports mesh mode for multi-node federation
+- **`cmd/api/main.go`**: REST API server for querying job status, logs, and schedules; supports peer federation for multi-node setups
 
 ### Configuration System
 
@@ -70,12 +70,9 @@ apiPort: "8080" # API server port (default shown)
 corsOrigins: # Additional CORS origins (optional)
   - https://marina.example.com
 
-# Optional mesh configuration for multi-node federation
-mesh:
-  nodeName: ${NODE_NAME} # Required for custom node name (defaults to hostname)
-  authPassword: ${MARINA_AUTH_PASSWORD} # Required for authentication
-  peers:
-    - http://marina-node2:8080
+# Optional: Peer federation for multi-node setups
+peers:
+  - http://marina-node2:8080
 ```
 
 **Configuration hierarchy**: Instance config > Global config > Target config > Hardcoded defaults
@@ -84,8 +81,8 @@ mesh:
 - Retention: Instance-specific (optional) > Global `retention` > Hardcoded default "7d:4w:6m"
 - StopAttached: Target-specific > Global `stopAttached` > Hardcoded default false
 - Timeout: Instance-specific (optional) > Global `resticTimeout` > Hardcoded default "60m"
-- Node name: `mesh.nodeName` > hostname (no environment variable fallback)
-- Auth password: `mesh.authPassword` only (no environment variable fallback)
+- Node name: `nodeName` (top-level) > hostname
+- Auth password: `authPassword` (top-level) > empty (disabled)
 
 **Target validation**: Each target must have exactly one of `volume` or `db` set. The `scheduler.BuildSchedulesFromConfig` function validates this at startup and returns an error for invalid configurations.
 
@@ -175,10 +172,10 @@ export RESTIC_PASSWORD=test
 export AWS_ACCESS_KEY_ID=your-key
 export AWS_SECRET_ACCESS_KEY=your-secret
 
-# Run with config file
+# Run with default config file (/config.yml or config.yml in current directory)
 ./marina
 
-# Or specify custom config location
+# Or specify custom config location via environment variable
 export CONFIG_FILE=/path/to/config.yml
 ./marina
 ```
@@ -240,11 +237,11 @@ schedules, _ := scheduler.BuildSchedulesFromConfig(cfg)
 ## Implemented Features
 
 - **Web Interface**: React-based dashboard for monitoring backup status and logs (in `web/` directory)
-- **Mesh Mode**: Multi-node federation allowing unified monitoring across multiple Marina instances
-  - Configured via `mesh` section in config.yml
-  - Mesh client in `internal/mesh/client.go` fetches data from peer nodes
+- **Peer Federation**: Multi-node federation allowing unified monitoring across multiple Marina instances
+  - Configured via top-level `peers` array in config.yml
+  - Client in `internal/peer/client.go` fetches data from peer nodes
   - Web interface automatically displays data from all connected nodes
-  - Authentication via shared password across mesh nodes
+  - Authentication via shared password across federated nodes
 
 ## Docker Compose Example
 
@@ -254,7 +251,7 @@ See `docker-compose.example.yml` for a complete deployment example with:
 - Volume and database backup examples in config.yml
 - Host bind mount for staging directory (required)
 - S3/local/custom backend configuration
-- Mesh mode setup for multi-node federation
+- Peer federation setup for multi-node deployments
 
 ## Context
 

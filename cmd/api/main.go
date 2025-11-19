@@ -23,7 +23,7 @@ import (
 	"github.com/polarfoxDev/marina/internal/config"
 	"github.com/polarfoxDev/marina/internal/database"
 	"github.com/polarfoxDev/marina/internal/logging"
-	"github.com/polarfoxDev/marina/internal/mesh"
+	"github.com/polarfoxDev/marina/internal/peer"
 	"github.com/polarfoxDev/marina/internal/version"
 )
 
@@ -37,18 +37,16 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Load configuration to get mesh settings
-	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
+	// Load configuration to get peer federation settings
+	cfg, err := config.Load(envDefault("CONFIG_FILE", "/config.yml"))
 	if err != nil {
 		log.Printf("Warning: could not load config: %v", err)
 		cfg = &config.Config{} // Use empty config if not available
 	}
 
-	// Determine node name from mesh config
-	nodeName := ""
-	if cfg.Mesh != nil && cfg.Mesh.NodeName != "" {
-		nodeName = cfg.Mesh.NodeName
-	} else {
+	// Determine node name from config (top-level field)
+	nodeName := cfg.NodeName
+	if nodeName == "" {
 		hn, err := os.Hostname()
 		if err != nil {
 			log.Printf("Warning: failed to get hostname: %v", err)
@@ -58,22 +56,19 @@ func main() {
 	}
 	log.Printf("Node name: %s", nodeName)
 
-	// Initialize authentication from mesh config
-	var authPassword string
-	if cfg.Mesh != nil && cfg.Mesh.AuthPassword != "" {
-		authPassword = cfg.Mesh.AuthPassword
-	}
+	// Initialize authentication from config (top-level field)
+	authPassword := cfg.AuthPassword
 	authHandler := auth.New(authPassword)
 	if authHandler.IsEnabled() {
 		log.Printf("Authentication enabled")
 	}
 
-	// Initialize mesh client if peers are configured
-	// Pass the password so mesh client can authenticate with peers
-	var meshClient *mesh.Client
-	if cfg.Mesh != nil && len(cfg.Mesh.Peers) > 0 {
-		meshClient = mesh.NewClient(cfg.Mesh.Peers, authPassword)
-		log.Printf("Mesh mode enabled with %d peer(s)", len(cfg.Mesh.Peers))
+	// Initialize peer federation client if peers are configured
+	// Pass the password so client can authenticate with peers
+	var peerClient *peer.Client
+	if len(cfg.Peers) > 0 {
+		peerClient = peer.NewClient(cfg.Peers, authPassword)
+		log.Printf("Peer federation enabled with %d peer(s)", len(cfg.Peers))
 	}
 
 	// Initialize unified database for both job status and logs
@@ -152,16 +147,16 @@ func main() {
 			r.Get("/info", handleInfo(nodeName))
 
 			r.Route("/status", func(r chi.Router) {
-				r.Get("/{instanceID}", handleGetJobStatus(db, meshClient, nodeName))
+				r.Get("/{instanceID}", handleGetJobStatus(db, peerClient, nodeName))
 			})
 
 			r.Route("/schedules", func(r chi.Router) {
-				r.Get("/", handleGetSchedules(db, meshClient, nodeName))
+				r.Get("/", handleGetSchedules(db, peerClient, nodeName))
 			})
 
 			r.Route("/logs", func(r chi.Router) {
-				r.Get("/job/{id}", handleGetJobLogs(logger, meshClient))
-				r.Get("/system", handleGetSystemLogs(logger, meshClient, nodeName))
+				r.Get("/job/{id}", handleGetJobLogs(logger, peerClient))
+				r.Get("/system", handleGetSystemLogs(logger, peerClient, nodeName))
 			})
 		})
 	})
@@ -236,7 +231,7 @@ func handleInfo(nodeName string) http.HandlerFunc {
 }
 
 // GET /api/schedules - Get all backup schedules (local + mesh peers)
-func handleGetSchedules(db *database.DB, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
+func handleGetSchedules(db *database.DB, peerClient *peer.Client, nodeName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.Background()
 
@@ -273,8 +268,8 @@ func handleGetSchedules(db *database.DB, meshClient *mesh.Client, nodeName strin
 		}
 
 		// Fetch schedules from mesh peers if configured
-		if meshClient != nil {
-			peerResults := meshClient.FetchAllSchedules(ctx)
+		if peerClient != nil {
+			peerResults := peerClient.FetchAllSchedules(ctx)
 			for _, peerResult := range peerResults {
 				if peerResult.Error != nil {
 					// Don't log backoff errors as warnings - they're expected
@@ -297,7 +292,7 @@ func handleGetSchedules(db *database.DB, meshClient *mesh.Client, nodeName strin
 }
 
 // GET /api/status/{instanceID} - Get statuses for a specific instance (local + mesh peers)
-func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
+func handleGetJobStatus(db *database.DB, peerClient *peer.Client, nodeName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceID := chi.URLParam(r, "instanceID")
 		if instanceID == "" {
@@ -341,8 +336,8 @@ func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName strin
 		}
 
 		// Fetch statuses from mesh peers if configured
-		if meshClient != nil {
-			peerResults := meshClient.FetchJobStatusFromPeers(ctx, instanceID)
+		if peerClient != nil {
+			peerResults := peerClient.FetchJobStatusFromPeers(ctx, instanceID)
 			for _, peerResult := range peerResults {
 				if peerResult.Error != nil {
 					// Don't log backoff errors as warnings - they're expected
@@ -367,7 +362,7 @@ func handleGetJobStatus(db *database.DB, meshClient *mesh.Client, nodeName strin
 
 // GET /api/logs/job/{id} - Get logs for a specific job status ID
 // Supports fetching logs from remote nodes via query parameter nodeUrl
-func handleGetJobLogs(logger *logging.Logger, meshClient *mesh.Client) http.HandlerFunc {
+func handleGetJobLogs(logger *logging.Logger, peerClient *peer.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		if idStr == "" {
@@ -392,10 +387,10 @@ func handleGetJobLogs(logger *logging.Logger, meshClient *mesh.Client) http.Hand
 
 		// Check if this is a request for remote node logs
 		nodeURL := r.URL.Query().Get("nodeUrl")
-		if nodeURL != "" && meshClient != nil {
+		if nodeURL != "" && peerClient != nil {
 			// Fetch logs from remote node
 			ctx := context.Background()
-			peerLogs := meshClient.FetchJobLogs(ctx, nodeURL, jobID, limit)
+			peerLogs := peerClient.FetchJobLogs(ctx, nodeURL, jobID, limit)
 			if peerLogs.Error != nil {
 				http.Error(w, fmt.Sprintf("Failed to fetch logs from peer: %v", peerLogs.Error), http.StatusInternalServerError)
 				return
@@ -425,7 +420,7 @@ type SystemLogEntryWithNode struct {
 }
 
 // GET /api/logs/system - Get system logs (logs without job_status_id) from local + mesh peers
-func handleGetSystemLogs(logger *logging.Logger, meshClient *mesh.Client, nodeName string) http.HandlerFunc {
+func handleGetSystemLogs(logger *logging.Logger, peerClient *peer.Client, nodeName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.Background()
 
@@ -477,8 +472,8 @@ func handleGetSystemLogs(logger *logging.Logger, meshClient *mesh.Client, nodeNa
 		}
 
 		// Fetch system logs from mesh peers if configured
-		if meshClient != nil {
-			peerResults := meshClient.FetchAllSystemLogs(ctx, levelStr, limit)
+		if peerClient != nil {
+			peerResults := peerClient.FetchAllSystemLogs(ctx, levelStr, limit)
 			for _, peerResult := range peerResults {
 				if peerResult.Error != nil {
 					// Don't log backoff errors as warnings - they're expected

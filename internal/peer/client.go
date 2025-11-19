@@ -1,4 +1,4 @@
-package mesh
+package peer
 
 import (
 	"bytes"
@@ -17,7 +17,7 @@ type Client struct {
 	peers      []string
 	httpClient *http.Client
 	timeout    time.Duration
-	password   string // Password for mesh authentication
+	password   string // Password for peer authentication
 
 	// Per-peer token cache with mutex for thread-safe access
 	tokensMu sync.RWMutex
@@ -30,7 +30,7 @@ type Client struct {
 	inFlight     map[string]bool      // peerURL -> whether a request is currently in flight
 }
 
-// NewClient creates a new mesh client with the specified peer URLs and auth password
+// NewClient creates a new peer client with the specified peer URLs and auth password
 func NewClient(peers []string, password string) *Client {
 	client := &Client{
 		peers:        peers,

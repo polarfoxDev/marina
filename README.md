@@ -26,7 +26,7 @@ Planned features:
 - **Retention policies**: Configurable daily/weekly/monthly retention per instance
 - **Pre/post hooks**: Execute commands before and after backups
 - **Web Interface**: React-based dashboard for monitoring backup status and logs
-- **Mesh Mode**: Connect multiple Marina instances for unified monitoring across servers
+- **Peer Federation**: Connect multiple Marina instances for unified monitoring across servers
 - **REST API**: Query backup status, logs, and schedules programmatically
 
 ## Quick Start
@@ -58,13 +58,17 @@ instances:
 stopAttached: true  # Stop containers when backing up volumes
 resticTimeout: "60m"      # Global timeout for all restic commands (default: 60m)
 
-# Optional mesh configuration for multi-node setups
-mesh:
-  nodeName: ${NODE_NAME}
-  authPassword: ${MARINA_AUTH_PASSWORD}
-  peers:
-    - http://marina-node2:8080
-    - http://marina-node3:8080
+# Optional: Custom node name (defaults to hostname)
+nodeName: ${NODE_NAME}  # or "production-server"
+
+# Optional: Authentication password for API/dashboard access
+authPassword: ${MARINA_AUTH_PASSWORD}  # Leave empty to disable auth
+
+# Optional: Peer federation - connect multiple Marina instances
+# When configured, the dashboard shows schedules from all connected nodes
+peers:
+  - http://marina-node2:8080
+  - http://marina-node3:8080
 ```
 
 See [config.example.yml](config.example.yml) for more examples including S3 configuration and additional target options.
@@ -85,7 +89,8 @@ services:
       # the host path for creating temporary containers
       - ./staging:/backup
       - marina-data:/var/lib/marina
-      - ./config.yml:/app/config.yml:ro
+      # Config file (defaults to /config.yml, override with CONFIG_FILE env var)
+      - ./config.yml:/config.yml:ro
     ports:
       - "8080:8080"
     environment:
@@ -158,7 +163,23 @@ curl http://localhost:8080/api/logs/job/1 | jq
 
 ## Configuration Reference
 
-Marina uses a single configuration file (`config.yml`) to define backup instances and their targets.
+Marina uses a single configuration file to define backup instances and their targets. By default, Marina looks for the config at `/config.yml`. You can override this by setting the `CONFIG_FILE` environment variable to a different path.
+
+**Example**: Mount your config file to `/config.yml` in the container:
+
+```yaml
+volumes:
+  - ./config.yml:/config.yml:ro
+```
+
+Or use a custom path:
+
+```yaml
+volumes:
+  - ./my-config.yml:/app/config.yml:ro
+environment:
+  CONFIG_FILE: /app/config.yml
+```
 
 ### Target Configuration
 
