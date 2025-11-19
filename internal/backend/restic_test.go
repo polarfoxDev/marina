@@ -38,10 +38,10 @@ echo "ARGS:$@"
 		// fatal stops test immediately
 		t.Fatalf("write fake restic: %v", err)
 	}
-	// Prepend to PATH
+	// Prepend to PATH using t.Setenv for proper cleanup
 	oldPath := os.Getenv("PATH")
 	newPath := dir + string(os.PathListSeparator) + oldPath
-	os.Setenv("PATH", newPath)
+	t.Setenv("PATH", newPath)
 }
 
 func TestBackupAndRetentionBuildArgsAndEnv(t *testing.T) {
