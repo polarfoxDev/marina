@@ -29,9 +29,7 @@ export function TargetBadge({ targetId }: TargetBadgeProps) {
   return (
     <span
       className="inline-flex cursor-default items-center rounded-full overflow-hidden border border-gray-300"
-      title={
-        parsed.id ? `${parsed.type}:${parsed.name}:${parsed.id}` : targetId
-      }
+      title={targetId}
     >
       <span
         className={`px-2 py-0.5 text-xs font-medium ${typeColors[parsed.type]}`}

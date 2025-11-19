@@ -80,7 +80,6 @@ export function getLogLevelColor(level: LogLevel): string {
 interface ParsedTarget {
   type: "volume" | "db";
   name: string;
-  id?: string;
 }
 
 export function parseTargetId(targetId: string): ParsedTarget | null {
@@ -94,11 +93,10 @@ export function parseTargetId(targetId: string): ParsedTarget | null {
     };
   }
 
-  if (parts[0] === "db" && parts.length >= 3) {
+  if (parts[0] === "db" && parts.length === 2) {
     return {
       type: "db",
       name: parts[1],
-      id: parts.slice(2).join(":"), // Rejoin in case ID contains colons
     };
   }
 
@@ -122,13 +120,13 @@ export function shouldIncludeLogLevel(
   filterLevel: LogLevel | "all"
 ): boolean {
   if (filterLevel === "all") return true;
-  
+
   const levelHierarchy: Record<LogLevel, LogLevel[]> = {
     DEBUG: ["DEBUG", "INFO", "WARN", "ERROR"],
     INFO: ["INFO", "WARN", "ERROR"],
     WARN: ["WARN", "ERROR"],
     ERROR: ["ERROR"],
   };
-  
+
   return levelHierarchy[filterLevel].includes(logLevel);
 }

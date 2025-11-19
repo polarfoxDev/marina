@@ -6,11 +6,11 @@ instances:
       BACKUP_ENDPOINT: https://backup.example.com
       BACKUP_TOKEN: example-token-12345
     targets:
-      - "volume:custom-data"  # Shorthand syntax
+      - volume: custom-data
   - id: restic-backup
     repository: /backup-repo
     schedule: "* * * * *" # every minute
     env:
       RESTIC_PASSWORD: example-token-12345
     targets:
-      - "volume:restic-data"  # Shorthand syntax
+      - volume: restic-data

@@ -7,25 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- Shorthand syntax for target configuration: `"volume:name"` and `"db:name"` for simpler configuration
-- Auto-detection of database type (`dbKind`) from container image name (supports postgres, mysql, mariadb, mongo, redis)
-- Support for mixing shorthand and full object syntax in the same targets list
-
 ### Changed
 
-- **BREAKING**: Replaced Docker label-based discovery with config.yml-based target specification
-  - All backup targets (volumes and databases) must now be defined in the `targets` field of each instance in config.yml
-  - Removed support for Docker labels (`dev.polarfox.marina.*`)
-  - Container and volume names in config.yml must match actual Docker container/volume names
-  - Discovery now verifies configured targets exist rather than scanning for labeled resources
-  - Simplified configuration: all backup settings now in one file instead of split between config.yml and docker-compose.yml
+- **BREAKING**: Completely removed Docker label-based discovery system
+  - All backup targets (volumes and databases) must now be defined in `config.yml` under the `targets` field of each instance
+  - Removed support for `dev.polarfox.marina.*` Docker labels
+  - Target validation now happens at backup time, not at startup
+  - Volumes and containers are looked up by name during backup execution
+  - Failed with clear error messages if configured volume/container doesn't exist
+- **BREAKING**: Removed shorthand syntax for target configuration (e.g., `"volume:name"` and `"db:name"`)
+  - Use proper YAML syntax instead: `volume: name` or `db: name`
+  - This makes configuration clearer and removes unnecessary string parsing
+- Simplified architecture: no more periodic rediscovery or Docker event listening
+  - Removed `internal/docker/discovery.go` and `internal/docker/events.go`
+  - No more `DISCOVERY_INTERVAL` or `ENABLE_EVENTS` environment variables
+  - Configuration changes require restart (edit config.yml and restart Marina)
 
 ### Removed
 
-- **BREAKING**: Removed `internal/labels` package (no longer needed)
-- **BREAKING**: Docker labels are no longer used for backup configuration
+- **BREAKING**: Removed `internal/docker/discovery.go` - discovery system no longer needed
+- **BREAKING**: Removed `internal/docker/events.go` - Docker event listener no longer needed
+- **BREAKING**: Removed dynamic discovery and automatic rescheduling features
+
 
 ## [0.5.0] - 2025-11-19
 

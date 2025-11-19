@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -171,7 +170,7 @@ func TestLoad_TargetEnvExpansion(t *testing.T) {
 	}
 }
 
-func TestLoad_ShorthandTargets(t *testing.T) {
+func TestLoad_Targets(t *testing.T) {
 	cfgYAML := `
  instances:
    - id: test
@@ -180,8 +179,8 @@ func TestLoad_ShorthandTargets(t *testing.T) {
      env:
        RESTIC_PASSWORD: test
      targets:
-       - "volume:app-data"
-       - "db:postgres"
+       - volume: app-data
+       - db: postgres
        - volume: full-config-volume
          paths: ["/data"]
        - db: full-config-db
@@ -200,22 +199,22 @@ func TestLoad_ShorthandTargets(t *testing.T) {
 	if len(d.Targets) != 4 {
 		t.Fatalf("expected 4 targets, got %d", len(d.Targets))
 	}
-	// Check shorthand volume target
+	// Check volume target
 	if d.Targets[0].Volume != "app-data" {
-		t.Fatalf("shorthand volume not parsed: %q", d.Targets[0].Volume)
+		t.Fatalf("volume not parsed: %q", d.Targets[0].Volume)
 	}
 	if d.Targets[0].DB != "" {
-		t.Fatalf("shorthand volume should not have DB set")
+		t.Fatalf("volume should not have DB set")
 	}
-	// Check shorthand DB target
+	// Check DB target
 	if d.Targets[1].DB != "postgres" {
-		t.Fatalf("shorthand db not parsed: %q", d.Targets[1].DB)
+		t.Fatalf("db not parsed: %q", d.Targets[1].DB)
 	}
 	if d.Targets[1].Volume != "" {
-		t.Fatalf("shorthand db should not have Volume set")
+		t.Fatalf("db should not have Volume set")
 	}
 	if d.Targets[1].DBKind != "" {
-		t.Fatalf("shorthand db should not have DBKind set initially (auto-detected later), got %q", d.Targets[1].DBKind)
+		t.Fatalf("db should not have DBKind set initially (auto-detected later), got %q", d.Targets[1].DBKind)
 	}
 	// Check full config volume target
 	if d.Targets[2].Volume != "full-config-volume" {
@@ -233,69 +232,5 @@ func TestLoad_ShorthandTargets(t *testing.T) {
 	}
 	if len(d.Targets[3].DumpArgs) != 1 || d.Targets[3].DumpArgs[0] != "-uroot" {
 		t.Fatalf("full config db dumpArgs not parsed: %v", d.Targets[3].DumpArgs)
-	}
-}
-
-func TestLoad_ShorthandTargetsInvalid(t *testing.T) {
-	tests := []struct {
-		name     string
-		cfgYAML  string
-		wantErr  string
-	}{
-		{
-			name: "missing colon",
-			cfgYAML: `
- instances:
-   - id: test
-     repository: /tmp/backup
-     schedule: "0 2 * * *"
-     env:
-       RESTIC_PASSWORD: test
-     targets:
-       - "volume-data"
-`,
-			wantErr: "must be in format 'volume:name' or 'db:name'",
-		},
-		{
-			name: "empty target name",
-			cfgYAML: `
- instances:
-   - id: test
-     repository: /tmp/backup
-     schedule: "0 2 * * *"
-     env:
-       RESTIC_PASSWORD: test
-     targets:
-       - "volume:"
-`,
-			wantErr: "target name cannot be empty",
-		},
-		{
-			name: "invalid target type",
-			cfgYAML: `
- instances:
-   - id: test
-     repository: /tmp/backup
-     schedule: "0 2 * * *"
-     env:
-       RESTIC_PASSWORD: test
-     targets:
-       - "container:mycontainer"
-`,
-			wantErr: "type must be 'volume' or 'db'",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := writeTempConfig(t, tt.cfgYAML)
-			_, err := Load(p)
-			if err == nil {
-				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
-			}
-			if !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
-			}
-		})
 	}
 }
