@@ -82,8 +82,16 @@ func (r *Runner) stageVolume(ctx context.Context, instanceID, timestamp string, 
 			if err != nil {
 				return nil, nil, fmt.Errorf("inspect container: %w", err)
 			}
-			if len(ctrInfo.Mounts) > 0 && ctrInfo.Mounts[0].Mode == "ro" {
-				jobLogger.Info("container %s is mounted read-only, skipping stop", ctr)
+			// Check if the target volume is mounted read-only in this container
+			skipStop := false
+			for _, m := range ctrInfo.Mounts {
+				if m.Type == "volume" && m.Name == target.Name && m.Mode == "ro" {
+					jobLogger.Info("container %s: volume %s is mounted read-only, skipping stop", ctr, target.Name)
+					skipStop = true
+					break
+				}
+			}
+			if skipStop {
 				continue
 			}
 
