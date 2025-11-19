@@ -29,7 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: Removed `internal/docker/events.go` - Docker event listener no longer needed
 - **BREAKING**: Removed dynamic discovery and automatic rescheduling features
 
-
 ## [0.5.0] - 2025-11-19
 
 ### Added
