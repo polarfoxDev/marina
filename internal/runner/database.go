@@ -97,7 +97,7 @@ func (r *Runner) stageDatabase(ctx context.Context, instanceID, timestamp string
 		return "", nil, err
 	}
 
-	jobLogger.Debug("executing dump command")
+	jobLogger.Info("creating database dump")
 	output, err := docker.ExecInContainer(ctx, r.Docker, containerID, []string{"/bin/sh", "-lc", dumpCmd})
 	if err != nil {
 		return "", nil, fmt.Errorf("dump failed: %w", err)

@@ -296,16 +296,17 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	for _, target := range job.Targets {
 		// Create target-specific logger for detailed logs
 		targetLogger := instanceLogger.WithTarget(target.ID)
-		targetLogger.Info("preparing %s: %s", target.Type, target.Name)
+		targetLogger.Info("staging %s: %s", target.Type, target.Name)
 
 		switch target.Type {
 		case model.TargetVolume:
 			paths, cleanup, err := r.stageVolume(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
-				targetLogger.Warn("failed to prepare volume: %v", err)
+				targetLogger.Warn("failed to stage volume: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("volume:%s", target.Name))
 				continue // Skip this target but continue with others
 			}
+			targetLogger.Info("volume staged successfully (%d paths)", len(paths))
 			allPaths = append(allPaths, paths...)
 			if cleanup != nil {
 				cleanups = append(cleanups, cleanup)
@@ -314,10 +315,11 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		case model.TargetDB:
 			path, cleanup, err := r.stageDatabase(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
-				targetLogger.Warn("failed to prepare db: %v", err)
+				targetLogger.Warn("failed to stage database: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("db:%s", target.Name))
 				continue // Skip this target but continue with others
 			}
+			targetLogger.Info("database dump completed successfully")
 			allPaths = append(allPaths, path)
 			if cleanup != nil {
 				cleanups = append(cleanups, cleanup)
