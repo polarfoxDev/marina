@@ -25,7 +25,7 @@ export function JobDetailsView() {
 
   // Filters
   const [targetFilter, setTargetFilter] = useState<string>("all");
-  const [levelFilter, setLevelFilter] = useState<LogLevel | "all">("INFO");
+  const [levelFilter, setLevelFilter] = useState<LogLevel>("INFO");
 
   const loadJobStatus = useCallback(async () => {
     if (!jobId || !instanceId) return;
@@ -71,11 +71,9 @@ export function JobDetailsView() {
       filtered = filtered.filter((log) => log.targetId === targetFilter);
     }
 
-    if (levelFilter !== "all") {
-      filtered = filtered.filter((log) =>
-        shouldIncludeLogLevel(log.level, levelFilter)
-      );
-    }
+    filtered = filtered.filter((log) =>
+      shouldIncludeLogLevel(log.level, levelFilter)
+    );
 
     setFilteredLogs(filtered);
   }, [logs, targetFilter, levelFilter]);
@@ -246,12 +244,9 @@ export function JobDetailsView() {
             </label>
             <select
               value={levelFilter}
-              onChange={(e) =>
-                setLevelFilter(e.target.value as LogLevel | "all")
-              }
+              onChange={(e) => setLevelFilter(e.target.value as LogLevel)}
               className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
             >
-              <option value="all">All Levels</option>
               <option value="DEBUG">DEBUG</option>
               <option value="INFO">INFO</option>
               <option value="WARN">WARN</option>
