@@ -24,6 +24,9 @@ func (r *Runner) stageDatabase(ctx context.Context, instanceID, timestamp string
 
 	var ctrInfo *container.Summary
 	for _, c := range containers {
+		if len(c.Names) == 0 {
+			continue
+		}
 		// Match by container name (with or without leading slash)
 		name := strings.TrimPrefix(c.Names[0], "/")
 		if name == target.Name {
