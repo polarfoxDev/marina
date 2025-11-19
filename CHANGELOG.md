@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Web UI: Restructured frontend with shadcn/ui component library
+  - Implemented shadcn/ui components (Button, Card, Badge, Table, Input) for improved consistency and maintainability
+  - Reorganized folder structure: view components moved to `src/views/`, base components in `src/components/`
+  - Added path aliases (`@/*`) for cleaner imports
+  - All UI components now use Tailwind CSS 4 compatible styling with class-variance-authority
+
 ## [0.10.0] - 2026-01-04
 
 ### Changed
@@ -22,52 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed Vite build warning about mixed static/dynamic imports of api module
 
 ## [0.9.0] - 2025-11-30
-
-### Added
-
-- Documentation for SFTP backend setup with SSH key configuration
-- OpenSSH client added to Docker image for SFTP backend support
-
-## [0.8.0] - 2025-11-29
-
-### Changed
-
-- Custom backend log streaming: logs now stream in real-time during backup execution instead of only appearing after completion
-
-### Fixed
-
-- Custom backend staging directory cleanup: timestamp directories are now properly cleaned up after each backup run, preventing unlimited disk space growth
-
-## [0.7.1] - 2025-11-19
-
-### Changed
-
-- Update restic to version 0.18.1
-
-## [0.7.0] - 2025-11-19
-
-### Changed
-
-- **BREAKING**: Default config file path changed from `config.yml` to `/config.yml` for Docker-friendly defaults
-  - Mount config to `/config.yml` in container: `- ./config.yml:/config.yml:ro`
-  - Override with `CONFIG_FILE` env var if needed: `CONFIG_FILE=/app/config.yml`
-  - See updated documentation in README for examples
-- **BREAKING**: Moved `nodeName` and `authPassword` from `mesh` section to top-level config fields
-  - `mesh.nodeName` → `nodeName` (top-level field)
-  - `mesh.authPassword` → `authPassword` (top-level field)
-  - The `mesh` section now only contains `peers` list for actual mesh networking
-  - This makes single-node authentication and node naming more intuitive
-  - Example single-node config: `nodeName: my-server` and `authPassword: secret` at top level
-  - Example mesh config: Add `mesh: { peers: [...] }` in addition to the top-level fields
-- **BREAKING**: Simplified peer federation configuration and removed nested `mesh` section
-  - `mesh.peers` → `peers` (top-level field)
-  - Removed `MeshConfig` struct entirely - just use top-level `peers` array
-  - Terminology changed from "mesh mode" to "peer federation" for clarity
-  - Internal package renamed from `internal/mesh` to `internal/peer`
-  - Configuration is now flatter and more intuitive: `nodeName`, `authPassword`, and `peers` all at top level
-  - Example: `peers: ["http://node2:8080", "http://node3:8080"]`
-
-## [0.6.0] - 2025-11-19
 
 ### Changed
 
