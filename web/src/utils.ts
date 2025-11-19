@@ -20,7 +20,8 @@ export function formatRelativeTime(dateString: string | null): string {
   if (diffMs < 0) {
     if (diffMins < 1) return "Just now";
     if (diffMins < 60) return `in ${diffMins} minute${diffMins > 1 ? "s" : ""}`;
-    if (diffHours < 24) return `in ${diffHours} hour${diffHours > 1 ? "s" : ""}`;
+    if (diffHours < 24)
+      return `in ${diffHours} hour${diffHours > 1 ? "s" : ""}`;
     return `in ${diffDays} day${diffDays > 1 ? "s" : ""}`;
   }
 
@@ -77,25 +78,25 @@ export function getLogLevelColor(level: LogLevel): string {
 }
 
 interface ParsedTarget {
-  type: "vol" | "dbs";
+  type: "volume" | "db";
   name: string;
   id?: string;
 }
 
 export function parseTargetId(targetId: string): ParsedTarget | null {
-  // Format: vol:name or dbs:name:id
+  // Format: volume:name or db:name:id
   const parts = targetId.split(":");
 
-  if (parts[0] === "vol" && parts.length === 2) {
+  if (parts[0] === "volume" && parts.length === 2) {
     return {
-      type: "vol",
+      type: "volume",
       name: parts[1],
     };
   }
 
-  if (parts[0] === "dbs" && parts.length >= 3) {
+  if (parts[0] === "db" && parts.length >= 3) {
     return {
-      type: "dbs",
+      type: "db",
       name: parts[1],
       id: parts.slice(2).join(":"), // Rejoin in case ID contains colons
     };
@@ -107,4 +108,27 @@ export function parseTargetId(targetId: string): ParsedTarget | null {
 export function formatTargetName(targetId: string): string {
   const parsed = parseTargetId(targetId);
   return parsed ? parsed.name : targetId;
+}
+
+/**
+ * Checks if a log entry should be included based on hierarchical log level filtering.
+ * - DEBUG: includes all logs (DEBUG, INFO, WARN, ERROR)
+ * - INFO: includes INFO, WARN, ERROR
+ * - WARN: includes WARN, ERROR
+ * - ERROR: includes only ERROR
+ */
+export function shouldIncludeLogLevel(
+  logLevel: LogLevel,
+  filterLevel: LogLevel | "all"
+): boolean {
+  if (filterLevel === "all") return true;
+  
+  const levelHierarchy: Record<LogLevel, LogLevel[]> = {
+    DEBUG: ["DEBUG", "INFO", "WARN", "ERROR"],
+    INFO: ["INFO", "WARN", "ERROR"],
+    WARN: ["WARN", "ERROR"],
+    ERROR: ["ERROR"],
+  };
+  
+  return levelHierarchy[filterLevel].includes(logLevel);
 }

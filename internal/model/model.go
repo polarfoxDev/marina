@@ -19,12 +19,9 @@ type BackupTarget struct {
 	Name       string     // human label (volume name or container name)
 	Type       TargetType // volume|db
 	InstanceID InstanceID // e.g. "hetzner-s3"
-	Exclude    []string
-	Tags       []string
-	PreHook    string // command inside app/DB container (optional)
+	PreHook    string     // command inside app/DB container (optional)
 	PostHook   string
 	// Volume specifics
-	VolumeName   string
 	Paths        []string // default ["/"]
 	AttachedCtrs []string // containers using the volume (for hooks)
 	StopAttached bool     // whether to stop attached containers during backup

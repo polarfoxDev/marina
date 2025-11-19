@@ -12,6 +12,8 @@ COMPOSE_FILE=tests/integration/docker-compose.integration.yml
 COMPOSE_FILE_MESH=tests/integration/mesh/docker-compose.mesh.yml
 IMAGE_TAG=${IMAGE_TAG:-marina:latest}
 REQ_DB_KINDS=(postgres mysql mariadb mongo)
+REQ_FAIL_DB=(postgres-empty)
+REQ_FAIL_VOLUME=(integration_testdata-empty)
 RESTIC_PASSWORD="testpass"
 
 # if docker network 'mesh' does not exist, create it
@@ -55,7 +57,7 @@ FAIL=0
 LATEST_LS=$(docker exec -e RESTIC_PASSWORD="$RESTIC_PASSWORD" marina-it /usr/local/bin/restic -r /repo ls latest)
 
 for KIND in "${REQ_DB_KINDS[@]}"; do
-  # Check for database dumps under /dbs/<container-name>/ pattern
+  # Check for database dumps under /db/<container-name>/ pattern
   # postgres -> pg-it, mysql -> mysql-it, mariadb -> mariadb-it, mongo -> mongo-it
   case "$KIND" in
     postgres)
@@ -72,7 +74,7 @@ for KIND in "${REQ_DB_KINDS[@]}"; do
       ;;
   esac
   
-  if echo "$LATEST_LS" | grep -q "/dbs/$CONTAINER_NAME/"; then
+  if echo "$LATEST_LS" | grep -q "/db/$CONTAINER_NAME/"; then
     echo "[ok] Found $KIND dump (container: $CONTAINER_NAME)"
   else
     echo "ERROR: could not find $KIND dump for container $CONTAINER_NAME" >&2
@@ -80,21 +82,68 @@ for KIND in "${REQ_DB_KINDS[@]}"; do
   fi
 done
 
-# Check volume snapshot presence by verifying file from volume-writer
-if echo "$LATEST_LS" | grep -q "/vol/"; then
-  echo "[ok] Found volume backup"
-  if echo "$LATEST_LS" | grep -q "hello\.txt"; then
-    echo "[ok] Found test volume file (hello.txt) in latest snapshot"
+# Check that empty database dumps are NOT present
+for KIND in "${REQ_FAIL_DB[@]}"; do
+  if echo "$LATEST_LS" | grep -q "/db/$KIND-it/"; then
+    echo "ERROR: Found $KIND dump but it should have failed validation" >&2
+    FAIL=1
   else
-    echo "WARN: hello.txt not found in volume backup" >&2
+    echo "[ok] Confirmed $KIND dump was excluded (validation failed as expected)"
+  fi
+done
+
+# Check volume snapshot presence by verifying file from volume-writer
+if echo "$LATEST_LS" | grep -q "/volume/"; then
+  echo "[ok] Found volume backup"
+  # restore and verify file content inside container
+  docker exec marina-it mkdir -p /tmp/marina-it-restore
+  docker exec -e RESTIC_PASSWORD="$RESTIC_PASSWORD" marina-it /usr/local/bin/restic -r /repo restore latest --target /tmp/marina-it-restore >/dev/null
+  FILE_CONTENT=$(docker exec marina-it sh -c 'cat /tmp/marina-it-restore/backup/local-integration/*/volume/integration_testdata/test.txt 2>/dev/null || true')
+  if [[ -n "$FILE_CONTENT" ]]; then
+    if [[ "$FILE_CONTENT" == "volume test data" ]]; then
+      echo "[ok] Volume backup file content verified"
+    else
+      echo "ERROR: volume backup file content mismatch (got: '$FILE_CONTENT')" >&2
+      FAIL=1
+    fi
+  else
+    echo "ERROR: volume backup file not found after restore" >&2
+    docker exec marina-it sh -c 'ls /tmp/marina-it-restore/backup/local-integration/*/volume/integration_testdata/ || true'
+    FAIL=1
   fi
 else
   echo "ERROR: volume backup not found" >&2
   FAIL=1
 fi
 
+# Check that empty volumes are NOT present
+for VOL in "${REQ_FAIL_VOLUME[@]}"; do
+  if echo "$LATEST_LS" | grep -q "/volume/$VOL/"; then
+    echo "ERROR: Found volume $VOL but it should have failed validation" >&2
+    FAIL=1
+  else
+    echo "[ok] Confirmed volume $VOL was excluded (validation failed as expected)"
+  fi
+done
+
+# Verify validation error messages appear in logs
+echo "[check] Verifying validation error messages in logs"
+LOGS=$(docker compose -f "$COMPOSE_FILE" logs --no-color marina)
+if echo "$LOGS" | grep -q "validation failed.*0 bytes"; then
+  echo "[ok] Found validation failure messages in logs"
+else
+  echo "ERROR: expected validation failure messages in logs" >&2
+  FAIL=1
+fi
+
 if [[ "$FAIL" -ne 0 ]]; then
   echo "Integration test FAILED" >&2
+  if [[ -n "${DEBUG:-}" ]]; then
+    read -n 1 -s -r -p "Press any key to continue and tear down..."
+    echo ""
+  fi
+  echo "[down] Tearing down integration stacks"
+  docker compose -f "$COMPOSE_FILE_MESH" down -v >/dev/null || true
   docker compose -f "$COMPOSE_FILE" down -v >/dev/null || true
   exit 1
 fi

@@ -14,9 +14,9 @@ type Backend interface {
 	// Init initializes the backend (e.g., create repository if needed)
 	Init(ctx context.Context) error
 
-	// Backup performs the backup operation with the given paths, tags, and excludes
+	// Backup performs the backup operation with the given paths and tags.
 	// Returns output logs from the backup operation
-	Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error)
+	Backup(ctx context.Context, paths []string, tags []string) (string, error)
 
 	// DeleteOldSnapshots applies retention policy to remove old backups
 	// Returns output logs from the cleanup operation

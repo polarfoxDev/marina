@@ -2,9 +2,12 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -281,10 +284,8 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	// Use instance start time as timestamp for all staged paths
 	timestamp := startTime.Format("20060102-150405")
 
-	// Collect all staging paths from all targets
 	var allPaths []string
 	var allTags []string
-	var allExcludes []string
 
 	// Track cleanup functions to defer
 	var cleanups []cleanupFunc
@@ -305,7 +306,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 
 		switch target.Type {
 		case model.TargetVolume:
-			paths, cleanup, err := r.prepareVolumeBackup(ctx, string(job.InstanceID), timestamp, target, targetLogger)
+			paths, cleanup, err := r.stageVolume(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
 				targetLogger.Warn("failed to prepare volume: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("volume:%s", target.Name))
@@ -317,7 +318,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 			}
 
 		case model.TargetDB:
-			path, cleanup, err := r.prepareDBBackup(ctx, string(job.InstanceID), timestamp, target, targetLogger)
+			path, cleanup, err := r.stageDatabase(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
 				targetLogger.Warn("failed to prepare db: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("db:%s", target.Name))
@@ -330,13 +331,12 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 
 		default:
 			targetLogger.Warn("unknown target type: %s", target.Type)
-			failedTargets = append(failedTargets, fmt.Sprintf("unknown:%s", target.Name))
+			failedTargets = append(failedTargets, fmt.Sprintf("%s:%s", target.Type, target.Name))
 			continue
 		}
 
-		// Collect tags and excludes from all targets
-		allTags = append(allTags, target.Tags...)
-		allExcludes = append(allExcludes, target.Exclude...)
+		// Collect tags from all targets
+		allTags = append(allTags, fmt.Sprintf("%s:%s", target.Type, target.Name))
 	}
 	// Check if all targets failed
 	if len(allPaths) == 0 {
@@ -359,11 +359,18 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	if len(failedTargets) > 0 {
 		instanceLogger.Warn("backup proceeding with %d/%d targets (%d failed: %v)",
 			len(allPaths), len(job.Targets), len(failedTargets), failedTargets)
+		// filter out tags of failed targets
+		filteredTags := []string{}
+		for _, tag := range allTags {
+			failed := slices.Contains(failedTargets, tag)
+			if !failed {
+				filteredTags = append(filteredTags, tag)
+			}
+		}
+		allTags = filteredTags
 	}
 
-	// Deduplicate tags and excludes
 	allTags = deduplicate(allTags)
-	allExcludes = deduplicate(allExcludes)
 
 	// Perform single backup with all collected paths
 	instanceLogger.Info("backing up %d paths to instance %s using backend %s: %s", len(allPaths), job.InstanceID, dest.GetType(), allPaths)
@@ -371,7 +378,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	if dest.GetType() == backend.BackendTypeCustomImage {
 		instanceLogger.Debug("using custom image %s, log output will appear as soon as execution finished", dest.GetImage())
 	}
-	logs, err := dest.Backup(ctx, allPaths, allTags, allExcludes)
+	logs, err := dest.Backup(ctx, allPaths, allTags)
 	instanceLogger.Debug("%s", logs)
 	if err != nil {
 		if updateErr := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
@@ -404,8 +411,8 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	return nil
 }
 
-// prepareVolumeBackup prepares a volume for backup and returns the staged paths and cleanup function
-func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) ([]string, cleanupFunc, error) {
+// stageVolume prepares a volume for backup and returns the staged paths and cleanup function
+func (r *Runner) stageVolume(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) ([]string, cleanupFunc, error) {
 	// Execute pre-hook in first attached container
 	if target.PreHook != "" && len(target.AttachedCtrs) > 0 {
 		jobLogger.Debug("executing pre-hook")
@@ -461,8 +468,8 @@ func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp 
 	}
 
 	// Copy volume data to staging
-	jobLogger.Info("copying volume %s to staging", target.VolumeName)
-	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, r.HostBackupPath, instanceID, timestamp, target.VolumeName, target.Paths)
+	jobLogger.Info("copying volume %s to staging", target.Name)
+	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, r.HostBackupPath, instanceID, timestamp, target.Name, target.Paths, jobLogger)
 	if err != nil {
 		// Restart stopped containers before returning error
 		for _, ctr := range stoppedContainers {
@@ -476,14 +483,19 @@ func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp 
 		// Clean up staging directory
 		if len(stagedPaths) > 0 {
 			firstPath := stagedPaths[0]
+			// Find the volume-specific directory to remove (e.g., /backup/instance/timestamp/volume/volumename)
+			// We want to remove up to the volume name level, not the entire instance directory
 			dir := firstPath
 			for {
 				parent := filepath.Dir(dir)
-				if parent == "/backup" {
-					_ = os.RemoveAll(dir)
+				if parent == "/backup" || parent == dir || parent == "/" {
+					// Reached too high or hit the root - something is wrong, don't delete
 					break
 				}
-				if parent == dir || parent == "/" {
+				// Check if parent path contains "/volume/" - if so, dir is the volume directory
+				if strings.Contains(parent, "/volume/") {
+					// Remove this directory (the volume-specific subdirectory)
+					_ = os.RemoveAll(dir)
 					break
 				}
 				dir = parent
@@ -497,11 +509,19 @@ func (r *Runner) prepareVolumeBackup(ctx context.Context, instanceID, timestamp 
 		}
 	}
 
+	// Validate staged files have content
+	if err := validateFileSize(stagedPaths, jobLogger); err != nil {
+		// Run cleanup immediately since we're returning an error and the cleanup
+		// function won't be added to the deferred cleanups list in runInstanceBackup
+		cleanup()
+		return nil, nil, fmt.Errorf("validation failed: %w", err)
+	}
+
 	return stagedPaths, cleanup, nil
 }
 
-// prepareDBBackup prepares a database backup and returns the staged path and cleanup function
-func (r *Runner) prepareDBBackup(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) (string, cleanupFunc, error) {
+// stageDatabase prepares a database backup and returns the staged path and cleanup function
+func (r *Runner) stageDatabase(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) (string, cleanupFunc, error) {
 	// Execute pre-hook
 	if target.PreHook != "" {
 		jobLogger.Debug("executing pre-hook")
@@ -534,7 +554,7 @@ func (r *Runner) prepareDBBackup(ctx context.Context, instanceID, timestamp stri
 	}
 
 	// Prepare host staging directory
-	hostStagingDir := filepath.Join("/backup", instanceID, timestamp, "dbs", target.Name)
+	hostStagingDir := filepath.Join("/backup", instanceID, timestamp, "db", target.Name)
 	if err := os.MkdirAll(hostStagingDir, 0o755); err != nil {
 		return "", nil, fmt.Errorf("prepare host staging: %w", err)
 	}
@@ -568,6 +588,14 @@ func (r *Runner) prepareDBBackup(ctx context.Context, instanceID, timestamp stri
 		_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", containerDumpDir)})
 		// Clean up host staging directory
 		_ = os.RemoveAll(hostStagingDir)
+	}
+
+	// Validate dump file has content
+	if err := validateFileSize([]string{hostDumpPath}, jobLogger); err != nil {
+		// Run cleanup immediately since we're returning an error and the cleanup
+		// function won't be added to the deferred cleanups list in runInstanceBackup
+		cleanup()
+		return "", nil, fmt.Errorf("dump validation failed: %w", err)
 	}
 
 	return hostDumpPath, cleanup, nil
@@ -635,3 +663,70 @@ func buildDumpCmd(t model.BackupTarget, dumpDir string) (cmd string, output stri
 }
 
 func stringsJoin(ss ...string) string { return strings.Join(ss, " ") }
+
+// validateFileSize checks that at least one file with content (size > 0) exists in the given paths.
+// It recursively walks directories and validates that there's at least one non-empty file.
+// Returns an error if all files are empty or no files exist (indicating a likely backup failure).
+// Optimized to return early as soon as a non-empty file is found.
+func validateFileSize(paths []string, jobLogger *logging.JobLogger) error {
+	var totalFiles int
+	var emptyFiles []string
+	foundNonEmpty := false
+
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("cannot access %s: %w", path, err)
+		}
+
+		if info.IsDir() {
+			// Walk directory and look for at least one non-empty file
+			err := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() {
+					totalFiles++
+					fileInfo, err := d.Info()
+					if err != nil {
+						return fmt.Errorf("cannot stat file %s: %w", p, err)
+					}
+					if fileInfo.Size() == 0 {
+						emptyFiles = append(emptyFiles, p)
+					} else {
+						// Found a non-empty file - we can return early
+						foundNonEmpty = true
+						return filepath.SkipAll
+					}
+				}
+				return nil
+			})
+			// filepath.SkipAll is returned when we found a non-empty file (success case)
+			if err != nil && !errors.Is(err, filepath.SkipAll) {
+				return fmt.Errorf("error walking directory %s: %w", path, err)
+			}
+			// If we found a non-empty file, we're done
+			if foundNonEmpty {
+				return nil
+			}
+		} else {
+			// Single file - check it
+			totalFiles++
+			if info.Size() == 0 {
+				emptyFiles = append(emptyFiles, path)
+			} else {
+				// Found non-empty file, return success immediately
+				return nil
+			}
+		}
+	}
+
+	// Check if we have any files at all
+	if totalFiles == 0 {
+		return fmt.Errorf("no files found in backup paths")
+	}
+
+	// If we got here, all files were empty
+	jobLogger.Warn("all %d file(s) are empty (0 bytes)", totalFiles)
+	return fmt.Errorf("all %d file(s) are empty (0 bytes) - backup likely failed silently", totalFiles)
+}

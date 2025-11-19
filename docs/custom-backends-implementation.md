@@ -51,7 +51,7 @@ Defines the contract that all backup backends must implement:
 ```go
 type Backend interface {
     Init(ctx context.Context) error
-    Backup(ctx context.Context, paths []string, tags []string, excludes []string) (string, error)
+    Backup(ctx context.Context, paths []string, tags []string) (string, error)
     DeleteOldSnapshots(ctx context.Context, daily, weekly, monthly int) (string, error)
     Close() error
 }

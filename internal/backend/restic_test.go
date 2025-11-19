@@ -52,7 +52,7 @@ func TestBackupAndRetentionBuildArgsAndEnv(t *testing.T) {
 		// Should succeed after calling 'init' because 'snapshots' fails.
 		t.Fatalf("Init failed: %v", err)
 	}
-	out, err := b.Backup(ctx, []string{"/data/path1"}, []string{"tag1"}, []string{"ignore"})
+	out, err := b.Backup(ctx, []string{"/data/path1"}, []string{"tag1"})
 	if err != nil {
 		t.Fatalf("Backup error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestBackupAndRetentionBuildArgsAndEnv(t *testing.T) {
 		// validate env propagation
 		t.Fatalf("environment variables not passed correctly; output: %s", out)
 	}
-	if !strings.Contains(out, "ARGS:--cleanup-cache backup --verbose /data/path1 --tag tag1 --exclude ignore") {
+	if !strings.Contains(out, "ARGS:--cleanup-cache backup --verbose /data/path1 --tag tag1") {
 		t.Fatalf("arguments not built correctly; output: %s", out)
 	}
 	out2, err := b.DeleteOldSnapshots(ctx, 7, 4, 6)

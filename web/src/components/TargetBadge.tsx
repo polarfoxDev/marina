@@ -17,13 +17,13 @@ export function TargetBadge({ targetId }: TargetBadgeProps) {
   }
 
   const typeColors = {
-    vol: "bg-blue-100 text-blue-700",
-    dbs: "bg-purple-100 text-purple-700",
+    volume: "bg-blue-100 text-blue-700",
+    db: "bg-purple-100 text-purple-700",
   };
 
   const typeLabel = {
-    vol: "vol",
-    dbs: "db",
+    volume: "volume",
+    db: "db",
   };
 
   return (
