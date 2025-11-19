@@ -3,7 +3,7 @@
 # Build cache mounts speed up dependency downloads
 
 ARG GO_VERSION=1.25
-ARG RESTIC_VERSION=0.17.3
+ARG RESTIC_VERSION=0.18.1
 
 FROM golang:${GO_VERSION}-alpine AS base
 WORKDIR /src
