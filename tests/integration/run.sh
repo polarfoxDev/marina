@@ -12,6 +12,8 @@ COMPOSE_FILE=tests/integration/docker-compose.integration.yml
 COMPOSE_FILE_MESH=tests/integration/mesh/docker-compose.mesh.yml
 IMAGE_TAG=${IMAGE_TAG:-marina:latest}
 REQ_DB_KINDS=(postgres mysql mariadb mongo)
+REQ_FAIL_DB=(postgres-empty)
+REQ_FAIL_VOLUME=(integration_testdata-empty)
 RESTIC_PASSWORD="testpass"
 
 # if docker network 'mesh' does not exist, create it
@@ -80,6 +82,16 @@ for KIND in "${REQ_DB_KINDS[@]}"; do
   fi
 done
 
+# Check that empty database dumps are NOT present
+for KIND in "${REQ_FAIL_DB[@]}"; do
+  if echo "$LATEST_LS" | grep -q "/db/$KIND-it/"; then
+    echo "ERROR: Found $KIND dump but it should have failed validation" >&2
+    FAIL=1
+  else
+    echo "[ok] Confirmed $KIND dump was excluded (validation failed as expected)"
+  fi
+done
+
 # Check volume snapshot presence by verifying file from volume-writer
 if echo "$LATEST_LS" | grep -q "/volume/"; then
   echo "[ok] Found volume backup"
@@ -101,6 +113,26 @@ if echo "$LATEST_LS" | grep -q "/volume/"; then
   fi
 else
   echo "ERROR: volume backup not found" >&2
+  FAIL=1
+fi
+
+# Check that empty volumes are NOT present
+for VOL in "${REQ_FAIL_VOLUME[@]}"; do
+  if echo "$LATEST_LS" | grep -q "/volume/$VOL/"; then
+    echo "ERROR: Found volume $VOL but it should have failed validation" >&2
+    FAIL=1
+  else
+    echo "[ok] Confirmed volume $VOL was excluded (validation failed as expected)"
+  fi
+done
+
+# Verify validation error messages appear in logs
+echo "[check] Verifying validation error messages in logs"
+LOGS=$(docker compose -f "$COMPOSE_FILE" logs --no-color marina)
+if echo "$LOGS" | grep -q "validation failed.*0 bytes"; then
+  echo "[ok] Found validation failure messages in logs"
+else
+  echo "ERROR: expected validation failure messages in logs" >&2
   FAIL=1
 fi
 

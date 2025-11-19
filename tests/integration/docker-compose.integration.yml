@@ -22,7 +22,9 @@ services:
       - mysql
       - mariadb
       - mongo
+      - postgres-empty
       - volume-writer
+      - volume-writer-empty
     networks:
       - mesh
 
@@ -71,6 +73,23 @@ services:
       dev.polarfox.marina.db: "mongo"
       dev.polarfox.marina.instanceID: "local-integration"
 
+  # Empty database container - should fail validation and be excluded from backups
+  # Pre-hook creates a fake pg_dumpall that outputs nothing, simulating a silent dump failure
+  postgres-empty:
+    image: postgres:16-alpine
+    container_name: pg-empty-it
+    environment:
+      - POSTGRES_PASSWORD=pgpass
+      - POSTGRES_DB=testdb
+      - POSTGRES_USER=postgres
+      - PGPASSWORD=pgpass
+    labels:
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.db: "postgres"
+      dev.polarfox.marina.instanceID: "local-integration"
+      # Pre-hook replaces pg_dumpall with a script that succeeds but outputs nothing
+      dev.polarfox.marina.pre: "echo '#!/bin/sh' > /usr/local/bin/pg_dumpall && echo 'exit 0' >> /usr/local/bin/pg_dumpall && chmod +x /usr/local/bin/pg_dumpall"
+
   volume-writer:
     image: alpine:3.20
     container_name: volwriter-it
@@ -78,10 +97,24 @@ services:
     volumes:
       - testdata:/mnt/data
 
+  # Empty volume writer - should fail validation and be excluded from backups
+  volume-writer-empty:
+    image: alpine:3.20
+    container_name: volwriter-empty-it
+    command: ["sh", "-lc", "touch /mnt/data/empty.txt && sleep infinity"]
+    volumes:
+      - testdata-empty:/mnt/data
+
 volumes:
   data:
   repo:
   testdata:
+    labels:
+      dev.polarfox.marina.enabled: "true"
+      dev.polarfox.marina.instanceID: "local-integration"
+      dev.polarfox.marina.paths: "/"
+      dev.polarfox.marina.stopAttached: "true"
+  testdata-empty:
     labels:
       dev.polarfox.marina.enabled: "true"
       dev.polarfox.marina.instanceID: "local-integration"
