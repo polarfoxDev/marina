@@ -18,7 +18,7 @@
 │  │         Initial Discovery (Docker API)              │    │
 │  │  • Verify configured volumes exist                  │    │
 │  │  • Verify configured containers exist               │    │
-│  │  • Build BackupTarget list from config.yml         │    │
+│  │  • Build BackupTarget list from config.yml          │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                           │                                 │
 │                           ▼                                 │
