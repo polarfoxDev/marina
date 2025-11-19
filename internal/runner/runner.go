@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -695,7 +696,8 @@ func validateFileSize(paths []string, jobLogger *logging.JobLogger) error {
 				}
 				return nil
 			})
-			if err != nil && err != filepath.SkipAll {
+			// filepath.SkipAll is the expected success path for early exit
+			if err != nil && !errors.Is(err, filepath.SkipAll) {
 				return fmt.Errorf("error walking directory %s: %w", path, err)
 			}
 			// If we found a non-empty file, we're done
