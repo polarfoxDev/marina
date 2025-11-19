@@ -105,7 +105,7 @@ if dest.CustomImage != "" {
 
 ### Volume Backup with Custom Image
 
-1. **Discovery**: Marina scans Docker for volumes with `dev.polarfox.marina.enabled: "true"`
+1. **Discovery**: Marina verifies configured volumes exist in Docker
 2. **Scheduling**: Cron triggers backup at configured time
 3. **Staging**: Marina copies volume data to `/backup/{instance}/{timestamp}/vol/{volume}/`
 4. **Container Launch**: Marina starts custom image with:

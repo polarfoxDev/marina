@@ -32,11 +32,6 @@ volumes:
   repo:
   data2:
   testdata2:
-    labels:
-      dev.polarfox.marina.enabled: "true"
-      dev.polarfox.marina.instanceID: "backup2"
-      dev.polarfox.marina.paths: "/"
-      dev.polarfox.marina.stopAttached: "true"
 
 networks:
   mesh:
