@@ -64,10 +64,16 @@ retention: "14d:8w:12m" # Format: daily:weekly:monthly
 stopAttached: true # Default for all volume targets
 resticTimeout: "60m" # Global timeout for backup operations
 
+# Runtime configuration
+dbPath: "/var/lib/marina/marina.db" # Database path (default shown)
+apiPort: "8080" # API server port (default shown)
+corsOrigins: # Additional CORS origins (optional)
+  - https://marina.example.com
+
 # Optional mesh configuration for multi-node federation
 mesh:
-  nodeName: ${NODE_NAME}
-  authPassword: ${MARINA_AUTH_PASSWORD}
+  nodeName: ${NODE_NAME} # Required for custom node name (defaults to hostname)
+  authPassword: ${MARINA_AUTH_PASSWORD} # Required for authentication
   peers:
     - http://marina-node2:8080
 ```
@@ -78,6 +84,8 @@ mesh:
 - Retention: Instance-specific (optional) > Global `retention` > Hardcoded default "7d:4w:6m"
 - StopAttached: Target-specific > Global `stopAttached` > Hardcoded default false
 - Timeout: Instance-specific (optional) > Global `resticTimeout` > Hardcoded default "60m"
+- Node name: `mesh.nodeName` > hostname (no environment variable fallback)
+- Auth password: `mesh.authPassword` only (no environment variable fallback)
 
 **Target validation**: Each target must have exactly one of `volume` or `db` set. The `scheduler.BuildSchedulesFromConfig` function validates this at startup and returns an error for invalid configurations.
 

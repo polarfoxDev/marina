@@ -65,19 +65,30 @@ instances:
 #   - retention: "7d:4w:6m" (7 daily, 4 weekly, 6 monthly)
 #   - stopAttached: false
 #   - resticTimeout: "60m" (60 minutes)
+#   - dbPath: "/var/lib/marina/marina.db"
+#   - apiPort: "8080"
 retention: "14d:8w:12m" # Format: daily:weekly:monthly - applies to all instances unless overridden
 stopAttached: true # Stop containers when backing up volumes (can be overridden per target)
 resticTimeout: "60m" # Global timeout for backup operations (format: "5m", "30s", "1h") - can be overridden per instance
 
+# Runtime configuration
+dbPath: "/var/lib/marina/marina.db" # Database path for job status and logs (default: "/var/lib/marina/marina.db")
+apiPort: "8080" # API server port (default: "8080")
+corsOrigins: # Additional CORS origins for API server (optional)
+  - https://marina.example.com
+  - https://backup.example.com
+  # Or use environment variables:
+  # - ${MARINA_CORS_ORIGIN}
+
 # Mesh configuration (optional) - for connecting multiple Marina instances
 # When configured, the dashboard will show backup schedules from all connected nodes
 mesh:
-  # Optional custom node name (defaults to hostname if not specified)
+  # Custom node name (defaults to hostname if not specified)
   nodeName: ${NODE_NAME} # or "production-server-1"
 
-  # Optional authentication password for mesh and dashboard access
-  # If set, all nodes in the mesh should use the same password
-  # Can also be set via MARINA_AUTH_PASSWORD environment variable
+  # Authentication password for mesh and dashboard access
+  # If not set, authentication is disabled
+  # All nodes in the mesh should use the same password
   authPassword: ${MARINA_AUTH_PASSWORD} # or "your-secure-password"
 
   # List of peer Marina API URLs to fetch data from

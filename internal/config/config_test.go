@@ -234,3 +234,138 @@ func TestLoad_Targets(t *testing.T) {
 		t.Fatalf("full config db dumpArgs not parsed: %v", d.Targets[3].DumpArgs)
 	}
 }
+
+func TestLoad_MeshConfigEnvExpansion(t *testing.T) {
+	t.Setenv("NODE_NAME", "test-node")
+	t.Setenv("MARINA_AUTH_PASSWORD", "secret123")
+	t.Setenv("PEER_1", "http://peer1:8080")
+	t.Setenv("PEER_2", "http://peer2:8080")
+	cfgYAML := `
+ instances:
+   - id: test
+     repository: /tmp/backup
+     schedule: "0 2 * * *"
+     env:
+       RESTIC_PASSWORD: test
+     targets:
+       - volume: app-data
+ mesh:
+   nodeName: ${NODE_NAME}
+   authPassword: ${MARINA_AUTH_PASSWORD}
+   peers:
+     - ${PEER_1}
+     - ${PEER_2}
+`
+	p := writeTempConfig(t, cfgYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Mesh == nil {
+		t.Fatalf("mesh config not parsed")
+	}
+	if cfg.Mesh.NodeName != "test-node" {
+		t.Fatalf("mesh nodeName not expanded: %q", cfg.Mesh.NodeName)
+	}
+	if cfg.Mesh.AuthPassword != "secret123" {
+		t.Fatalf("mesh authPassword not expanded: %q", cfg.Mesh.AuthPassword)
+	}
+	if len(cfg.Mesh.Peers) != 2 {
+		t.Fatalf("expected 2 peers, got %d", len(cfg.Mesh.Peers))
+	}
+	if cfg.Mesh.Peers[0] != "http://peer1:8080" {
+		t.Fatalf("peer 1 not expanded: %q", cfg.Mesh.Peers[0])
+	}
+	if cfg.Mesh.Peers[1] != "http://peer2:8080" {
+		t.Fatalf("peer 2 not expanded: %q", cfg.Mesh.Peers[1])
+	}
+}
+
+func TestLoad_GlobalRetention(t *testing.T) {
+	cfgYAML := `
+ instances:
+   - id: with-retention
+     repository: /tmp/backup1
+     schedule: "0 2 * * *"
+     retention: "30d:12w:24m"
+     env:
+       RESTIC_PASSWORD: test
+     targets:
+       - volume: app-data
+   - id: without-retention
+     repository: /tmp/backup2
+     schedule: "0 3 * * *"
+     env:
+       RESTIC_PASSWORD: test
+     targets:
+       - volume: other-data
+ retention: "14d:8w:12m"
+`
+	p := writeTempConfig(t, cfgYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	// Check global retention is set
+	if cfg.Retention != "14d:8w:12m" {
+		t.Fatalf("global retention not parsed: %q", cfg.Retention)
+	}
+	// Check instance with retention keeps its value
+	d1, err := cfg.GetDestination("with-retention")
+	if err != nil {
+		t.Fatalf("GetDestination error: %v", err)
+	}
+	if d1.Retention != "30d:12w:24m" {
+		t.Fatalf("instance retention not preserved: %q", d1.Retention)
+	}
+	// Check instance without retention has empty string (global is applied in scheduler)
+	d2, err := cfg.GetDestination("without-retention")
+	if err != nil {
+		t.Fatalf("GetDestination error: %v", err)
+	}
+	if d2.Retention != "" {
+		t.Fatalf("instance without retention should be empty string, got: %q", d2.Retention)
+	}
+}
+
+func TestLoad_RuntimeConfigEnvExpansion(t *testing.T) {
+	t.Setenv("DB_PATH", "/custom/marina.db")
+	t.Setenv("API_PORT", "9090")
+	t.Setenv("CORS_ORIGIN_1", "https://app1.example.com")
+	t.Setenv("CORS_ORIGIN_2", "https://app2.example.com")
+	cfgYAML := `
+ instances:
+   - id: test
+     repository: /tmp/backup
+     schedule: "0 2 * * *"
+     env:
+       RESTIC_PASSWORD: test
+     targets:
+       - volume: app-data
+ dbPath: ${DB_PATH}
+ apiPort: ${API_PORT}
+ corsOrigins:
+   - ${CORS_ORIGIN_1}
+   - ${CORS_ORIGIN_2}
+`
+	p := writeTempConfig(t, cfgYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.DBPath != "/custom/marina.db" {
+		t.Fatalf("dbPath not expanded: %q", cfg.DBPath)
+	}
+	if cfg.APIPort != "9090" {
+		t.Fatalf("apiPort not expanded: %q", cfg.APIPort)
+	}
+	if len(cfg.CorsOrigins) != 2 {
+		t.Fatalf("expected 2 CORS origins, got %d", len(cfg.CorsOrigins))
+	}
+	if cfg.CorsOrigins[0] != "https://app1.example.com" {
+		t.Fatalf("CORS origin 1 not expanded: %q", cfg.CorsOrigins[0])
+	}
+	if cfg.CorsOrigins[1] != "https://app2.example.com" {
+		t.Fatalf("CORS origin 2 not expanded: %q", cfg.CorsOrigins[1])
+	}
+}
