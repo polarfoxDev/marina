@@ -17,14 +17,9 @@ type Config struct {
 	DBPath        string           `yaml:"dbPath,omitempty"`        // Database path (default: "/var/lib/marina/marina.db")
 	APIPort       string           `yaml:"apiPort,omitempty"`       // API server port (default: "8080")
 	CorsOrigins   []string         `yaml:"corsOrigins,omitempty"`   // Additional CORS origins for API server
-	Mesh          *MeshConfig      `yaml:"mesh,omitempty"`          // Optional mesh configuration
-}
-
-// MeshConfig represents mesh networking configuration for connecting multiple Marina instances
-type MeshConfig struct {
-	NodeName     string   `yaml:"nodeName,omitempty"`     // Optional custom node name (defaults to hostname)
-	Peers        []string `yaml:"peers,omitempty"`        // List of peer API URLs (e.g., "http://marina-node2:8080")
-	AuthPassword string   `yaml:"authPassword,omitempty"` // Optional authentication password (can use env var)
+	NodeName      string           `yaml:"nodeName,omitempty"`      // Optional custom node name (defaults to hostname)
+	AuthPassword  string           `yaml:"authPassword,omitempty"`  // Optional authentication password for API access
+	Peers         []string         `yaml:"peers,omitempty"`         // Optional peer API URLs for federation (e.g., "http://marina-node2:8080")
 }
 
 // BackupInstance represents a backup instance configuration
@@ -92,17 +87,13 @@ func Load(path string) (*Config, error) {
 	// Expand environment variables in runtime config
 	cfg.DBPath = expandEnv(cfg.DBPath)
 	cfg.APIPort = expandEnv(cfg.APIPort)
+	cfg.NodeName = expandEnv(cfg.NodeName)
+	cfg.AuthPassword = expandEnv(cfg.AuthPassword)
 	for i := range cfg.CorsOrigins {
 		cfg.CorsOrigins[i] = expandEnv(cfg.CorsOrigins[i])
 	}
-
-	// Expand environment variables in mesh config
-	if cfg.Mesh != nil {
-		cfg.Mesh.NodeName = expandEnv(cfg.Mesh.NodeName)
-		cfg.Mesh.AuthPassword = expandEnv(cfg.Mesh.AuthPassword)
-		for i := range cfg.Mesh.Peers {
-			cfg.Mesh.Peers[i] = expandEnv(cfg.Mesh.Peers[i])
-		}
+	for i := range cfg.Peers {
+		cfg.Peers[i] = expandEnv(cfg.Peers[i])
 	}
 
 	return &cfg, nil

@@ -33,7 +33,7 @@ func main() {
 	ctx := context.Background()
 
 	// Load configuration from config.yml
-	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
+	cfg, err := config.Load(envDefault("CONFIG_FILE", "/config.yml"))
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
@@ -67,11 +67,9 @@ func main() {
 		logger.Info("marked %d interrupted job(s) as aborted", cleaned)
 	}
 
-	// Determine node name from mesh config (required if mesh is configured)
-	nodeName := ""
-	if cfg.Mesh != nil && cfg.Mesh.NodeName != "" {
-		nodeName = cfg.Mesh.NodeName
-	} else {
+	// Determine node name from config (top-level field)
+	nodeName := cfg.NodeName
+	if nodeName == "" {
 		hn, err := os.Hostname()
 		if err != nil {
 			logger.Warn("failed to get hostname: %v", err)

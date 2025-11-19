@@ -80,22 +80,21 @@ corsOrigins: # Additional CORS origins for API server (optional)
   # Or use environment variables:
   # - ${MARINA_CORS_ORIGIN}
 
-# Mesh configuration (optional) - for connecting multiple Marina instances
+# Optional: Custom node name (defaults to hostname if not specified)
+# Used to identify this Marina instance in logs and the dashboard
+nodeName: ${NODE_NAME} # or "production-server-1"
+
+# Optional: Authentication password for API and dashboard access
+# If not set, authentication is disabled (not recommended for production)
+# All nodes in a federation should use the same password
+authPassword: ${MARINA_AUTH_PASSWORD} # or "your-secure-password"
+
+# Optional: Peer federation - connect multiple Marina instances
 # When configured, the dashboard will show backup schedules from all connected nodes
-mesh:
-  # Custom node name (defaults to hostname if not specified)
-  nodeName: ${NODE_NAME} # or "production-server-1"
-
-  # Authentication password for mesh and dashboard access
-  # If not set, authentication is disabled
-  # All nodes in the mesh should use the same password
-  authPassword: ${MARINA_AUTH_PASSWORD} # or "your-secure-password"
-
-  # List of peer Marina API URLs to fetch data from
-  # Each peer should be reachable via HTTP/HTTPS
-  peers:
-    - http://marina-node2:8080
-    - http://marina-node3:8080
-    # Or use environment variables:
-    # - ${PEER_NODE_1}
-    # - ${PEER_NODE_2}
+# Each peer should be reachable via HTTP/HTTPS and use the same authPassword
+peers:
+  - http://marina-node2:8080
+  - http://marina-node3:8080
+  # Or use environment variables:
+  # - ${PEER_NODE_1}
+  # - ${PEER_NODE_2}

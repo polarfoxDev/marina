@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: Default config file path changed from `config.yml` to `/config.yml` for Docker-friendly defaults
+  - Mount config to `/config.yml` in container: `- ./config.yml:/config.yml:ro`
+  - Override with `CONFIG_FILE` env var if needed: `CONFIG_FILE=/app/config.yml`
+  - See updated documentation in README for examples
+- **BREAKING**: Moved `nodeName` and `authPassword` from `mesh` section to top-level config fields
+  - `mesh.nodeName` → `nodeName` (top-level field)
+  - `mesh.authPassword` → `authPassword` (top-level field)
+  - The `mesh` section now only contains `peers` list for actual mesh networking
+  - This makes single-node authentication and node naming more intuitive
+  - Example single-node config: `nodeName: my-server` and `authPassword: secret` at top level
+  - Example mesh config: Add `mesh: { peers: [...] }` in addition to the top-level fields
+- **BREAKING**: Simplified peer federation configuration and removed nested `mesh` section
+  - `mesh.peers` → `peers` (top-level field)
+  - Removed `MeshConfig` struct entirely - just use top-level `peers` array
+  - Terminology changed from "mesh mode" to "peer federation" for clarity
+  - Internal package renamed from `internal/mesh` to `internal/peer`
+  - Configuration is now flatter and more intuitive: `nodeName`, `authPassword`, and `peers` all at top level
+  - Example: `peers: ["http://node2:8080", "http://node3:8080"]`
+
 ## [0.6.0] - 2025-11-19
 
 ### Changed

@@ -241,43 +241,39 @@ func TestLoad_MeshConfigEnvExpansion(t *testing.T) {
 	t.Setenv("PEER_1", "http://peer1:8080")
 	t.Setenv("PEER_2", "http://peer2:8080")
 	cfgYAML := `
- instances:
-   - id: test
-     repository: /tmp/backup
-     schedule: "0 2 * * *"
-     env:
-       RESTIC_PASSWORD: test
-     targets:
-       - volume: app-data
- mesh:
-   nodeName: ${NODE_NAME}
-   authPassword: ${MARINA_AUTH_PASSWORD}
-   peers:
-     - ${PEER_1}
-     - ${PEER_2}
+instances:
+  - id: test
+    repository: /tmp/backup
+    schedule: "0 2 * * *"
+    env:
+      RESTIC_PASSWORD: test
+    targets:
+      - volume: app-data
+nodeName: ${NODE_NAME}
+authPassword: ${MARINA_AUTH_PASSWORD}
+peers:
+  - ${PEER_1}
+  - ${PEER_2}
 `
 	p := writeTempConfig(t, cfgYAML)
 	cfg, err := Load(p)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if cfg.Mesh == nil {
-		t.Fatalf("mesh config not parsed")
+	if cfg.NodeName != "test-node" {
+		t.Fatalf("nodeName not expanded: %q", cfg.NodeName)
 	}
-	if cfg.Mesh.NodeName != "test-node" {
-		t.Fatalf("mesh nodeName not expanded: %q", cfg.Mesh.NodeName)
+	if cfg.AuthPassword != "secret123" {
+		t.Fatalf("authPassword not expanded: %q", cfg.AuthPassword)
 	}
-	if cfg.Mesh.AuthPassword != "secret123" {
-		t.Fatalf("mesh authPassword not expanded: %q", cfg.Mesh.AuthPassword)
+	if len(cfg.Peers) != 2 {
+		t.Fatalf("expected 2 peers, got %d", len(cfg.Peers))
 	}
-	if len(cfg.Mesh.Peers) != 2 {
-		t.Fatalf("expected 2 peers, got %d", len(cfg.Mesh.Peers))
+	if cfg.Peers[0] != "http://peer1:8080" {
+		t.Fatalf("peer 1 not expanded: %q", cfg.Peers[0])
 	}
-	if cfg.Mesh.Peers[0] != "http://peer1:8080" {
-		t.Fatalf("peer 1 not expanded: %q", cfg.Mesh.Peers[0])
-	}
-	if cfg.Mesh.Peers[1] != "http://peer2:8080" {
-		t.Fatalf("peer 2 not expanded: %q", cfg.Mesh.Peers[1])
+	if cfg.Peers[1] != "http://peer2:8080" {
+		t.Fatalf("peer 2 not expanded: %q", cfg.Peers[1])
 	}
 }
 

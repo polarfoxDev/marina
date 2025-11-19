@@ -12,8 +12,8 @@ services:
       - ./staging:/backup
       # Persistent data directory for logs and status database
       - marina-data:/var/lib/marina
-      # Configuration file
-      - ./config.yml:/app/config.yml:ro
+      # Configuration file (defaults to /config.yml, override with CONFIG_FILE env var if needed)
+      - ./config.yml:/config.yml:ro
     ports:
       # Expose API server for status queries and future web UI
       - "8080:8080"
@@ -27,8 +27,8 @@ services:
       DO_SPACES_SECRET: "${DO_SPACES_SECRET}"
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
       MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD}"
-      # Marina runtime configuration
-      CONFIG_FILE: "/app/config.yml"
+      # Marina runtime configuration (optional overrides)
+      # CONFIG_FILE: "/config.yml"  # Default, no need to set unless using custom path
       DB_PATH: "/var/lib/marina/marina.db"
       API_PORT: "8080"
       NODE_NAME: "${HOSTNAME}"

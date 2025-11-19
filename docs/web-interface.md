@@ -46,29 +46,31 @@ RUN pnpm run build
 COPY --from=frontend /app/dist /app/web
 ```
 
-## Mesh Mode
+## Peer Federation
 
-When Marina is configured with mesh networking, the dashboard automatically:
+When Marina is configured with peer federation, the dashboard automatically:
 
 - Fetches schedules and status from all configured peer nodes
 - Groups data by node name for easy organization
 - Shows connectivity status and peer count
 - Uses shared authentication across all nodes
 
-### Mesh Configuration
+### Federation Configuration
 
 In your `config.yml`:
 
 ```yaml
-mesh:
-  nodeName: production-server-1
-  authPassword: your-secure-password
-  peers:
-    - http://marina-node2:8080
-    - http://marina-node3:8080
+# Node identification and authentication
+nodeName: production-server-1
+authPassword: your-secure-password
+
+# Peer federation - connect to other Marina instances
+peers:
+  - http://marina-node2:8080
+  - http://marina-node3:8080
 ```
 
-All nodes in the mesh should use the same `authPassword` for authentication.
+All nodes in the federation should use the same `authPassword` for authentication.
 
 ## API Server
 
@@ -154,7 +156,7 @@ Open your browser to:
 http://localhost:8080
 ```
 
-If authentication is configured (via `mesh.authPassword` in config.yml), you'll be prompted to log in.
+If authentication is configured (via `authPassword` in config.yml), you'll be prompted to log in.
 
 ## Testing the API
 

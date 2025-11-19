@@ -5,7 +5,7 @@ instances:
     env:
       RESTIC_PASSWORD: testpass
     targets:
-      - volume: mesh_testdata2  # volume prefixed by docker-compose
+      - volume: mesh_testdata2 # volume prefixed by docker-compose
         stopAttached: true
 
 # Global defaults
@@ -13,8 +13,8 @@ retention: "7d:4w:6m"
 stopAttached: true
 resticTimeout: "30s"
 
-mesh:
-  nodeName: server2
-  authPassword: mesh
-  peers:
-    - http://marina-it:8080
+nodeName: server2
+authPassword: mesh
+
+peers:
+  - http://marina-it:8080
