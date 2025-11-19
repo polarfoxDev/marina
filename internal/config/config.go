@@ -14,6 +14,9 @@ type Config struct {
 	Retention     string           `yaml:"retention,omitempty"`     // Global default retention
 	StopAttached  *bool            `yaml:"stopAttached,omitempty"`  // Global default stopAttached
 	ResticTimeout string           `yaml:"resticTimeout,omitempty"` // Global default timeout (e.g., "5m", "30s")
+	DBPath        string           `yaml:"dbPath,omitempty"`        // Database path (default: "/var/lib/marina/marina.db")
+	APIPort       string           `yaml:"apiPort,omitempty"`       // API server port (default: "8080")
+	CorsOrigins   []string         `yaml:"corsOrigins,omitempty"`   // Additional CORS origins for API server
 	Mesh          *MeshConfig      `yaml:"mesh,omitempty"`          // Optional mesh configuration
 }
 
@@ -33,6 +36,19 @@ type BackupInstance struct {
 	Retention     string            `yaml:"retention,omitempty"`     // Optional: instance-specific retention (overrides global)
 	ResticTimeout string            `yaml:"resticTimeout,omitempty"` // Optional: instance-specific timeout (overrides global)
 	Env           map[string]string `yaml:"env,omitempty"`           // Environment variables passed to backend
+	Targets       []TargetConfig    `yaml:"targets,omitempty"`       // List of backup targets (volumes and databases)
+}
+
+// TargetConfig represents a backup target configuration
+type TargetConfig struct {
+	Volume       string   `yaml:"volume,omitempty"`       // Volume name (mutually exclusive with DB)
+	DB           string   `yaml:"db,omitempty"`           // Container name for database (mutually exclusive with Volume)
+	Paths        []string `yaml:"paths,omitempty"`        // Paths to backup (for volumes, default: ["/"])
+	StopAttached *bool    `yaml:"stopAttached,omitempty"` // Stop containers using volume (for volumes)
+	PreHook      string   `yaml:"preHook,omitempty"`      // Command to run before backup
+	PostHook     string   `yaml:"postHook,omitempty"`     // Command to run after backup
+	DBKind       string   `yaml:"dbKind,omitempty"`       // Database type: postgres, mysql, mariadb, mongo, redis (auto-detected if not provided)
+	DumpArgs     []string `yaml:"dumpArgs,omitempty"`     // Arguments for database dump command
 }
 
 // Load reads and parses the config file, expanding environment variables
@@ -57,6 +73,27 @@ func Load(path string) (*Config, error) {
 		for k, v := range cfg.Instances[i].Env {
 			cfg.Instances[i].Env[k] = expandEnv(v)
 		}
+		// Expand environment variables in target configurations
+		for j := range cfg.Instances[i].Targets {
+			cfg.Instances[i].Targets[j].Volume = expandEnv(cfg.Instances[i].Targets[j].Volume)
+			cfg.Instances[i].Targets[j].DB = expandEnv(cfg.Instances[i].Targets[j].DB)
+			cfg.Instances[i].Targets[j].PreHook = expandEnv(cfg.Instances[i].Targets[j].PreHook)
+			cfg.Instances[i].Targets[j].PostHook = expandEnv(cfg.Instances[i].Targets[j].PostHook)
+			cfg.Instances[i].Targets[j].DBKind = expandEnv(cfg.Instances[i].Targets[j].DBKind)
+			for k := range cfg.Instances[i].Targets[j].Paths {
+				cfg.Instances[i].Targets[j].Paths[k] = expandEnv(cfg.Instances[i].Targets[j].Paths[k])
+			}
+			for k := range cfg.Instances[i].Targets[j].DumpArgs {
+				cfg.Instances[i].Targets[j].DumpArgs[k] = expandEnv(cfg.Instances[i].Targets[j].DumpArgs[k])
+			}
+		}
+	}
+
+	// Expand environment variables in runtime config
+	cfg.DBPath = expandEnv(cfg.DBPath)
+	cfg.APIPort = expandEnv(cfg.APIPort)
+	for i := range cfg.CorsOrigins {
+		cfg.CorsOrigins[i] = expandEnv(cfg.CorsOrigins[i])
 	}
 
 	// Expand environment variables in mesh config

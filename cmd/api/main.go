@@ -44,29 +44,24 @@ func main() {
 		cfg = &config.Config{} // Use empty config if not available
 	}
 
-	// Determine node name
+	// Determine node name from mesh config
 	nodeName := ""
 	if cfg.Mesh != nil && cfg.Mesh.NodeName != "" {
 		nodeName = cfg.Mesh.NodeName
 	} else {
-		nodeName = os.Getenv("NODE_NAME")
-		if nodeName == "" {
-			hn, err := os.Hostname()
-			if err != nil {
-				log.Printf("Warning: failed to get hostname: %v", err)
-				hn = "unknown"
-			}
-			nodeName = hn
+		hn, err := os.Hostname()
+		if err != nil {
+			log.Printf("Warning: failed to get hostname: %v", err)
+			hn = "unknown"
 		}
+		nodeName = hn
 	}
 	log.Printf("Node name: %s", nodeName)
 
-	// Initialize authentication
+	// Initialize authentication from mesh config
 	var authPassword string
 	if cfg.Mesh != nil && cfg.Mesh.AuthPassword != "" {
 		authPassword = cfg.Mesh.AuthPassword
-	} else {
-		authPassword = os.Getenv("MARINA_AUTH_PASSWORD")
 	}
 	authHandler := auth.New(authPassword)
 	if authHandler.IsEnabled() {
@@ -82,7 +77,10 @@ func main() {
 	}
 
 	// Initialize unified database for both job status and logs
-	dbPath := envDefault("DB_PATH", "/var/lib/marina/marina.db")
+	dbPath := cfg.DBPath
+	if dbPath == "" {
+		dbPath = "/var/lib/marina/marina.db"
+	}
 	db, err := database.InitDB(dbPath)
 	if err != nil {
 		log.Fatalf("init database: %v", err)
@@ -115,10 +113,9 @@ func main() {
 		"http://127.0.0.1:5173",
 	}
 
-	// Allow additional origins from environment variable (comma-separated)
-	// Example: CORS_ORIGINS=https://marina.example.com,https://backup.example.com
-	if extraOrigins := os.Getenv("CORS_ORIGINS"); extraOrigins != "" {
-		for _, origin := range strings.Split(extraOrigins, ",") {
+	// Add additional origins from config
+	if len(cfg.CorsOrigins) > 0 {
+		for _, origin := range cfg.CorsOrigins {
 			origin = strings.TrimSpace(origin)
 			// Validate that it's a valid URL
 			if _, err := url.Parse(origin); err == nil && origin != "" {

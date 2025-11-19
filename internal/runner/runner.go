@@ -2,13 +2,8 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/docker/docker/client"
@@ -16,7 +11,6 @@ import (
 
 	"github.com/polarfoxDev/marina/internal/backend"
 	"github.com/polarfoxDev/marina/internal/database"
-	"github.com/polarfoxDev/marina/internal/docker"
 	"github.com/polarfoxDev/marina/internal/logging"
 	"github.com/polarfoxDev/marina/internal/model"
 )
@@ -302,16 +296,17 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	for _, target := range job.Targets {
 		// Create target-specific logger for detailed logs
 		targetLogger := instanceLogger.WithTarget(target.ID)
-		targetLogger.Info("preparing %s: %s", target.Type, target.Name)
+		targetLogger.Info("staging %s: %s", target.Type, target.Name)
 
 		switch target.Type {
 		case model.TargetVolume:
 			paths, cleanup, err := r.stageVolume(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
-				targetLogger.Warn("failed to prepare volume: %v", err)
+				targetLogger.Warn("failed to stage volume: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("volume:%s", target.Name))
 				continue // Skip this target but continue with others
 			}
+			targetLogger.Info("volume staged successfully (%d paths)", len(paths))
 			allPaths = append(allPaths, paths...)
 			if cleanup != nil {
 				cleanups = append(cleanups, cleanup)
@@ -320,10 +315,11 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		case model.TargetDB:
 			path, cleanup, err := r.stageDatabase(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
-				targetLogger.Warn("failed to prepare db: %v", err)
+				targetLogger.Warn("failed to stage database: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("db:%s", target.Name))
 				continue // Skip this target but continue with others
 			}
+			targetLogger.Info("database dump completed successfully")
 			allPaths = append(allPaths, path)
 			if cleanup != nil {
 				cleanups = append(cleanups, cleanup)
@@ -409,324 +405,4 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	}
 
 	return nil
-}
-
-// stageVolume prepares a volume for backup and returns the staged paths and cleanup function
-func (r *Runner) stageVolume(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) ([]string, cleanupFunc, error) {
-	// Execute pre-hook in first attached container
-	if target.PreHook != "" && len(target.AttachedCtrs) > 0 {
-		jobLogger.Debug("executing pre-hook")
-		output, err := docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PreHook})
-		if err != nil {
-			return nil, nil, fmt.Errorf("prehook: %w", err)
-		}
-		if output != "" {
-			jobLogger.Debug("pre-hook output: %s", output)
-		}
-		// Defer post-hook
-		defer func() {
-			if target.PostHook != "" {
-				jobLogger.Debug("executing post-hook")
-				output, err := docker.ExecInContainer(ctx, r.Docker, target.AttachedCtrs[0], []string{"/bin/sh", "-lc", target.PostHook})
-				if err != nil {
-					jobLogger.Warn("post-hook failed: %v", err)
-				} else if output != "" {
-					jobLogger.Debug("post-hook output: %s", output)
-				}
-			}
-		}()
-	}
-
-	// Stop attached containers if needed
-	var stoppedContainers []string
-	if target.StopAttached && len(target.AttachedCtrs) > 0 {
-		for _, ctr := range target.AttachedCtrs {
-			running, err := docker.IsContainerRunning(ctx, r.Docker, ctr)
-			if err != nil {
-				return nil, nil, fmt.Errorf("check container state: %w", err)
-			}
-			if !running {
-				continue
-			}
-
-			// Skip if mounted read-only
-			ctrInfo, err := r.Docker.ContainerInspect(ctx, ctr)
-			if err != nil {
-				return nil, nil, fmt.Errorf("inspect container: %w", err)
-			}
-			if len(ctrInfo.Mounts) > 0 && ctrInfo.Mounts[0].Mode == "ro" {
-				jobLogger.Info("container %s is mounted read-only, skipping stop", ctr)
-				continue
-			}
-
-			jobLogger.Info("stopping container %s", ctr)
-			if err := docker.StopContainer(ctx, r.Docker, ctr); err != nil {
-				return nil, nil, fmt.Errorf("stop container: %w", err)
-			}
-			stoppedContainers = append(stoppedContainers, ctr)
-		}
-	}
-
-	// Copy volume data to staging
-	jobLogger.Info("copying volume %s to staging", target.Name)
-	stagedPaths, err := docker.CopyVolumeToStaging(ctx, r.Docker, r.HostBackupPath, instanceID, timestamp, target.Name, target.Paths, jobLogger)
-	if err != nil {
-		// Restart stopped containers before returning error
-		for _, ctr := range stoppedContainers {
-			_ = docker.StartContainer(ctx, r.Docker, ctr)
-		}
-		return nil, nil, err
-	}
-
-	// Create cleanup function
-	cleanup := func() {
-		// Clean up staging directory
-		if len(stagedPaths) > 0 {
-			firstPath := stagedPaths[0]
-			// Find the volume-specific directory to remove (e.g., /backup/instance/timestamp/volume/volumename)
-			// We want to remove up to the volume name level, not the entire instance directory
-			dir := firstPath
-			for {
-				parent := filepath.Dir(dir)
-				if parent == "/backup" || parent == dir || parent == "/" {
-					// Reached too high or hit the root - something is wrong, don't delete
-					break
-				}
-				// Check if parent path contains "/volume/" - if so, dir is the volume directory
-				if strings.Contains(parent, "/volume/") {
-					// Remove this directory (the volume-specific subdirectory)
-					_ = os.RemoveAll(dir)
-					break
-				}
-				dir = parent
-			}
-		}
-
-		// Restart stopped containers
-		for _, ctr := range stoppedContainers {
-			jobLogger.Info("restarting container %s", ctr)
-			_ = docker.StartContainer(ctx, r.Docker, ctr)
-		}
-	}
-
-	// Validate staged files have content
-	if err := validateFileSize(stagedPaths, jobLogger); err != nil {
-		// Run cleanup immediately since we're returning an error and the cleanup
-		// function won't be added to the deferred cleanups list in runInstanceBackup
-		cleanup()
-		return nil, nil, fmt.Errorf("validation failed: %w", err)
-	}
-
-	return stagedPaths, cleanup, nil
-}
-
-// stageDatabase prepares a database backup and returns the staged path and cleanup function
-func (r *Runner) stageDatabase(ctx context.Context, instanceID, timestamp string, target model.BackupTarget, jobLogger *logging.JobLogger) (string, cleanupFunc, error) {
-	// Execute pre-hook
-	if target.PreHook != "" {
-		jobLogger.Debug("executing pre-hook")
-		output, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PreHook})
-		if err != nil {
-			return "", nil, fmt.Errorf("prehook: %w", err)
-		}
-		if output != "" {
-			jobLogger.Debug("pre-hook output: %s", output)
-		}
-		// Defer post-hook
-		defer func() {
-			if target.PostHook != "" {
-				jobLogger.Debug("executing post-hook")
-				output, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", target.PostHook})
-				if err != nil {
-					jobLogger.Warn("post-hook failed: %v", err)
-				} else if output != "" {
-					jobLogger.Debug("post-hook output: %s", output)
-				}
-			}
-		}()
-	}
-
-	// Create dump inside DB container (use same timestamp as instance backup)
-	containerDumpDir := fmt.Sprintf("/tmp/marina-%s", timestamp)
-	mk := fmt.Sprintf("mkdir -p %q", containerDumpDir)
-	if _, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", mk}); err != nil {
-		return "", nil, fmt.Errorf("prepare dump dir: %w", err)
-	}
-
-	// Prepare host staging directory
-	hostStagingDir := filepath.Join("/backup", instanceID, timestamp, "db", target.Name)
-	if err := os.MkdirAll(hostStagingDir, 0o755); err != nil {
-		return "", nil, fmt.Errorf("prepare host staging: %w", err)
-	}
-
-	// Build and execute dump command
-	dumpCmd, dumpFile, err := buildDumpCmd(target, containerDumpDir)
-	if err != nil {
-		return "", nil, err
-	}
-
-	jobLogger.Debug("executing dump command")
-	output, err := docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", dumpCmd})
-	if err != nil {
-		return "", nil, fmt.Errorf("dump failed: %w", err)
-	}
-	jobLogger.Debug("dump output: %s", output)
-
-	// Copy dump file from container
-	hostDumpPath, err := docker.CopyFileFromContainer(ctx, r.Docker, target.ContainerID, dumpFile, hostStagingDir, func(expected, written int64) {
-		if expected > 0 && expected != written {
-			jobLogger.Warn("copy warning: expected %d bytes, wrote %d", expected, written)
-		}
-	})
-	if err != nil {
-		return "", nil, err
-	}
-
-	// Create cleanup function
-	cleanup := func() {
-		// Clean up container dump directory
-		_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", containerDumpDir)})
-		// Clean up host staging directory
-		_ = os.RemoveAll(hostStagingDir)
-	}
-
-	// Validate dump file has content
-	if err := validateFileSize([]string{hostDumpPath}, jobLogger); err != nil {
-		// Run cleanup immediately since we're returning an error and the cleanup
-		// function won't be added to the deferred cleanups list in runInstanceBackup
-		cleanup()
-		return "", nil, fmt.Errorf("dump validation failed: %w", err)
-	}
-
-	return hostDumpPath, cleanup, nil
-}
-
-// deduplicate removes duplicate strings from a slice
-func deduplicate(slice []string) []string {
-	seen := make(map[string]bool)
-	result := []string{}
-	for _, item := range slice {
-		if !seen[item] {
-			seen[item] = true
-			result = append(result, item)
-		}
-	}
-	return result
-}
-func buildDumpCmd(t model.BackupTarget, dumpDir string) (cmd string, output string, err error) {
-	switch t.DBKind {
-	case "postgres":
-		file := filepath.Join(dumpDir, "dump.sql")
-		// Use pg_dumpall to dump all databases with postgres user
-		// PGPASSWORD env var should be set in container
-		args := stringsJoin(append([]string{"pg_dumpall", "-U", "postgres"}, t.DumpArgs...)...)
-		return fmt.Sprintf("%s > %q", args, file), file, nil
-	case "mysql":
-		file := filepath.Join(dumpDir, "dump.sql")
-		// Build dump command with automatic credential fallback
-		// If no dump.args provided, try MYSQL_ROOT_PASSWORD, then MYSQL_PASSWORD
-		if len(t.DumpArgs) == 0 {
-			cmd := fmt.Sprintf(`
-				mysqldump --single-transaction --all-databases -uroot -p"$MYSQL_ROOT_PASSWORD" > %q 2>/tmp/dump.err || \
-				(echo "Root dump failed, trying MYSQL_USER..." >&2 && \
-				 mysqldump --single-transaction --all-databases -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" > %q)
-			`, file, file)
-			return cmd, file, nil
-		}
-		// Use provided dump.args
-		baseArgs := []string{"mysqldump", "--single-transaction", "--all-databases"}
-		args := stringsJoin(append(baseArgs, t.DumpArgs...)...)
-		return fmt.Sprintf("%s > %q", args, file), file, nil
-	case "mariadb":
-		file := filepath.Join(dumpDir, "dump.sql")
-		// Build dump command with automatic credential fallback
-		// If no dump.args provided, try MARIADB_ROOT_PASSWORD, then MARIADB_PASSWORD
-		if len(t.DumpArgs) == 0 {
-			cmd := fmt.Sprintf(`
-				mariadb-dump --single-transaction --all-databases -uroot -p"$MARIADB_ROOT_PASSWORD" > %q 2>/tmp/dump.err || \
-				(echo "Root dump failed, trying MARIADB_USER..." >&2 && \
-				 mariadb-dump --single-transaction --all-databases -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" > %q)
-			`, file, file)
-			return cmd, file, nil
-		}
-		// Use provided dump.args
-		baseArgs := []string{"mariadb-dump", "--single-transaction", "--all-databases"}
-		args := stringsJoin(append(baseArgs, t.DumpArgs...)...)
-		return fmt.Sprintf("%s > %q", args, file), file, nil
-	case "mongo":
-		file := filepath.Join(dumpDir, "dump.archive")
-		args := stringsJoin(append([]string{"mongodump", "--archive"}, t.DumpArgs...)...)
-		return fmt.Sprintf("%s > %q", args, file), file, nil
-	default:
-		return "", "", fmt.Errorf("unsupported db kind %q", t.DBKind)
-	}
-}
-
-func stringsJoin(ss ...string) string { return strings.Join(ss, " ") }
-
-// validateFileSize checks that at least one file with content (size > 0) exists in the given paths.
-// It recursively walks directories and validates that there's at least one non-empty file.
-// Returns an error if all files are empty or no files exist (indicating a likely backup failure).
-// Optimized to return early as soon as a non-empty file is found.
-func validateFileSize(paths []string, jobLogger *logging.JobLogger) error {
-	var totalFiles int
-	var emptyFiles []string
-	foundNonEmpty := false
-
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("cannot access %s: %w", path, err)
-		}
-
-		if info.IsDir() {
-			// Walk directory and look for at least one non-empty file
-			err := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if !d.IsDir() {
-					totalFiles++
-					fileInfo, err := d.Info()
-					if err != nil {
-						return fmt.Errorf("cannot stat file %s: %w", p, err)
-					}
-					if fileInfo.Size() == 0 {
-						emptyFiles = append(emptyFiles, p)
-					} else {
-						// Found a non-empty file - we can return early
-						foundNonEmpty = true
-						return filepath.SkipAll
-					}
-				}
-				return nil
-			})
-			// filepath.SkipAll is returned when we found a non-empty file (success case)
-			if err != nil && !errors.Is(err, filepath.SkipAll) {
-				return fmt.Errorf("error walking directory %s: %w", path, err)
-			}
-			// If we found a non-empty file, we're done
-			if foundNonEmpty {
-				return nil
-			}
-		} else {
-			// Single file - check it
-			totalFiles++
-			if info.Size() == 0 {
-				emptyFiles = append(emptyFiles, path)
-			} else {
-				// Found non-empty file, return success immediately
-				return nil
-			}
-		}
-	}
-
-	// Check if we have any files at all
-	if totalFiles == 0 {
-		return fmt.Errorf("no files found in backup paths")
-	}
-
-	// If we got here, all files were empty
-	jobLogger.Warn("all %d file(s) are empty (0 bytes)", totalFiles)
-	return fmt.Errorf("all %d file(s) are empty (0 bytes) - backup likely failed silently", totalFiles)
 }

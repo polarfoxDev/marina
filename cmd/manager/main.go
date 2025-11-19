@@ -17,6 +17,7 @@ import (
 	"github.com/polarfoxDev/marina/internal/logging"
 	"github.com/polarfoxDev/marina/internal/model"
 	"github.com/polarfoxDev/marina/internal/runner"
+	"github.com/polarfoxDev/marina/internal/scheduler"
 	"github.com/polarfoxDev/marina/internal/version"
 )
 
@@ -31,8 +32,17 @@ func main() {
 
 	ctx := context.Background()
 
+	// Load configuration from config.yml
+	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+
 	// Initialize unified database for both job status and logs
-	dbPath := envDefault("DB_PATH", "/var/lib/marina/marina.db")
+	dbPath := cfg.DBPath
+	if dbPath == "" {
+		dbPath = "/var/lib/marina/marina.db"
+	}
 	db, err := database.InitDB(dbPath)
 	if err != nil {
 		log.Fatalf("init database: %v", err)
@@ -57,16 +67,11 @@ func main() {
 		logger.Info("marked %d interrupted job(s) as aborted", cleaned)
 	}
 
-	// Load configuration from config.yml
-	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
-	if err != nil {
-		log.Fatalf("load config: %v", err)
-	}
-
-	// Build map of instances from config
-	instances := make(map[model.InstanceID]backend.Backend)
-	nodeName := os.Getenv("NODE_NAME")
-	if nodeName == "" {
+	// Determine node name from mesh config (required if mesh is configured)
+	nodeName := ""
+	if cfg.Mesh != nil && cfg.Mesh.NodeName != "" {
+		nodeName = cfg.Mesh.NodeName
+	} else {
 		hn, err := os.Hostname()
 		if err != nil {
 			logger.Warn("failed to get hostname: %v", err)
@@ -74,12 +79,15 @@ func main() {
 		}
 		nodeName = hn
 	}
-	logger.Info("using hostname %s for backups", nodeName)
+	logger.Info("using node name %s for backups", nodeName)
+
+	// Build map of instances from config
+	instances := make(map[model.InstanceID]backend.Backend)
 	for _, dest := range cfg.Instances {
 		var backendInstance backend.Backend
 		var backendErr error
 
-		// Parse resticresticTimeout (instance-specific or global default)
+		// Parse restic timeout (instance-specific or global default)
 		timeoutStr := dest.ResticTimeout
 		if timeoutStr == "" {
 			timeoutStr = cfg.ResticTimeout
@@ -126,17 +134,13 @@ func main() {
 		logger.Info("instance %s initialized", id)
 	}
 
-	// Discover backup targets from Docker labels
-	disc, err := dockerd.NewDiscoverer(cfg)
+	// Build backup schedules from config (no discovery needed)
+	schedules, err := scheduler.BuildSchedulesFromConfig(cfg)
 	if err != nil {
-		log.Fatalf("docker: %v", err)
+		log.Fatalf("build schedules from config: %v", err)
 	}
+	logger.Info("loaded %d backup schedules from config", len(schedules))
 
-	schedules, err := disc.Discover(ctx)
-	if err != nil {
-		log.Fatalf("discover: %v", err)
-	}
-	logger.Info("discovered %d backup schedules", len(schedules))
 	// Create Docker client
 	dcli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -171,53 +175,8 @@ func main() {
 	r.Start()
 	logger.Info("scheduler started")
 
-	// Initial discovery and scheduling
-	schedules, err = disc.Discover(ctx)
-	if err != nil {
-		log.Fatalf("initial discover: %v", err)
-	}
-	logger.Info("discovered %d backup schedules", len(schedules))
+	// Schedule all configured backups
 	r.SyncBackups(schedules)
-
-	// Function to trigger rediscovery
-	triggerDiscovery := func() {
-		logger.Info("triggering rediscovery...")
-		schedules, err := disc.Discover(ctx)
-		if err != nil {
-			logger.Error("rediscovery failed: %v", err)
-			return
-		}
-		r.SyncBackups(schedules)
-	}
-
-	// Start Docker event listener for real-time updates (if enabled)
-	enableEvents := envDefault("ENABLE_EVENTS", "true") == "true"
-	if enableEvents {
-		eventListener := dockerd.NewEventListener(dcli, triggerDiscovery, logger.Debug)
-		if err := eventListener.Start(ctx); err != nil {
-			logger.Error("failed to start event listener: %v", err)
-		} else {
-			logger.Info("docker event listener started")
-		}
-	}
-
-	// Start periodic rediscovery to handle dynamic changes
-	rediscoveryInterval := envDefaultDuration("DISCOVERY_INTERVAL", 30*time.Second)
-	logger.Info("starting periodic discovery (interval: %v)", rediscoveryInterval)
-
-	ticker := time.NewTicker(rediscoveryInterval)
-	defer ticker.Stop()
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				triggerDiscovery()
-			}
-		}
-	}()
 
 	logger.Info("marina is running...")
 
@@ -237,17 +196,4 @@ func envDefault(k, def string) string {
 		return def
 	}
 	return v
-}
-
-func envDefaultDuration(k string, def time.Duration) time.Duration {
-	v := os.Getenv(k)
-	if v == "" {
-		return def
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		log.Printf("invalid duration for %s: %v, using default %v", k, err, def)
-		return def
-	}
-	return d
 }

@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-11-19
+
+### Changed
+
+- **BREAKING**: Removed direct environment variable fallbacks for `NODE_NAME` and `MARINA_AUTH_PASSWORD`
+  - These must now be configured in `config.yml` under `mesh.nodeName` and `mesh.authPassword`
+  - Environment variable expansion still works (e.g., `nodeName: ${NODE_NAME}`)
+  - Node name defaults to hostname if not specified in mesh config
+  - Auth password has no default - leave empty to disable authentication
+- **BREAKING**: Removed direct `CORS_ORIGINS` environment variable support
+  - Use `corsOrigins` array in `config.yml` instead
+  - Environment variable expansion works: `corsOrigins: [${CORS_ORIGIN_1}, ${CORS_ORIGIN_2}]`
+- **BREAKING**: Removed direct `DB_PATH` environment variable support
+  - Use `dbPath` field in `config.yml` instead (defaults to `/var/lib/marina/marina.db`)
+  - Environment variable expansion works: `dbPath: ${DB_PATH}`
+- **BREAKING**: Completely removed Docker label-based discovery system
+  - All backup targets (volumes and databases) must now be defined in `config.yml` under the `targets` field of each instance
+  - Removed support for `dev.polarfox.marina.*` Docker labels
+  - Target validation now happens at backup time, not at startup
+  - Volumes and containers are looked up by name during backup execution
+  - Fails with clear error messages if configured volume/container doesn't exist
+- **BREAKING**: Removed shorthand syntax for target configuration (e.g., `"volume:name"` and `"db:name"`)
+  - Use proper YAML syntax instead: `volume: name` or `db: name`
+  - This makes configuration clearer and removes unnecessary string parsing
+- Configuration now fully supports environment variable expansion in all fields
+  - All config fields support `${VAR}` or `$VAR` syntax
+  - Includes new fields: `dbPath`, `apiPort`, `corsOrigins`
+- Simplified architecture: no more periodic rediscovery or Docker event listening
+  - Removed `internal/docker/discovery.go` and `internal/docker/events.go`
+  - No more `DISCOVERY_INTERVAL` or `ENABLE_EVENTS` environment variables
+  - Configuration changes require restart (edit config.yml and restart Marina)
+
+### Added
+
+- New `dbPath` field in config.yml for database path configuration
+- New `apiPort` field in config.yml for API server port configuration
+- New `corsOrigins` array in config.yml for additional CORS origins
+
+### Removed
+
+- **BREAKING**: Removed `internal/docker/discovery.go` - discovery system no longer needed
+- **BREAKING**: Removed `internal/docker/events.go` - Docker event listener no longer needed
+- **BREAKING**: Removed dynamic discovery and automatic rescheduling features
+
+### Fixed
+
+- Manager now respects `mesh.nodeName` from config.yml instead of always reading `NODE_NAME` environment variable directly (consistent with API server behavior)
+- Fixed comment typo in manager: "resticresticTimeout" → "restic timeout"
+
 ## [0.5.0] - 2025-11-19
 
 ### Added
@@ -14,10 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - File size validation: Backups now fail if ALL files are empty (0 bytes), preventing silent failures from database dumps or volume copies. Individual empty files are allowed (normal for lock files, .gitkeep, etc.) as long as at least one file has content
 
 ### Changed
-
 - **BREAKING**: Removed `dev.polarfox.marina.tags` label - Marina now auto-generates a single tag for each backup
   - Volume backups: `volume:<name>`
   - Database backups: `db:<kind>`
+- `dbKind` is now optional for database targets (auto-detected from container image if not specified)
 - Web UI: Log level filter now defaults to INFO instead of "All Levels"
 - Web UI: Log level filtering now works hierarchically (DEBUG shows all logs, INFO shows INFO+WARN+ERROR, WARN shows WARN+ERROR, ERROR shows only ERROR)
 
@@ -126,7 +175,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/polarfoxDev/marina/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/polarfoxDev/marina/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/polarfoxDev/marina/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/polarfoxDev/marina/compare/v0.3.1...v0.4.0

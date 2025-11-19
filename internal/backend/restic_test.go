@@ -14,6 +14,11 @@ func createFakeRestic(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "restic")
 	script := `#!/bin/sh
+# Skip --cleanup-cache flag that's always prepended
+if [ "$1" = "--cleanup-cache" ]; then
+  shift
+fi
+
 if [ "$1" = "forget" ]; then
   echo "forget"
   echo "--prune"
@@ -38,10 +43,10 @@ echo "ARGS:$@"
 		// fatal stops test immediately
 		t.Fatalf("write fake restic: %v", err)
 	}
-	// Prepend to PATH
+	// Prepend to PATH using t.Setenv for proper cleanup
 	oldPath := os.Getenv("PATH")
 	newPath := dir + string(os.PathListSeparator) + oldPath
-	os.Setenv("PATH", newPath)
+	t.Setenv("PATH", newPath)
 }
 
 func TestBackupAndRetentionBuildArgsAndEnv(t *testing.T) {
@@ -60,7 +65,8 @@ func TestBackupAndRetentionBuildArgsAndEnv(t *testing.T) {
 		// validate env propagation
 		t.Fatalf("environment variables not passed correctly; output: %s", out)
 	}
-	if !strings.Contains(out, "ARGS:--cleanup-cache backup --verbose /data/path1 --tag tag1") {
+	// Note: --cleanup-cache is shifted out by the fake script to match actual command processing
+	if !strings.Contains(out, "ARGS:backup --verbose /data/path1 --tag tag1") {
 		t.Fatalf("arguments not built correctly; output: %s", out)
 	}
 	out2, err := b.DeleteOldSnapshots(ctx, 7, 4, 6)

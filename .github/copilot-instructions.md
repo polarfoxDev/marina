@@ -2,30 +2,33 @@
 
 ## Architecture Overview
 
-Marina is a Docker label-based backup orchestrator that uses Restic as its backend. The system discovers backup targets by scanning Docker labels on volumes and containers, schedules backups via cron, and executes them with application-aware hooks.
+Marina is a config-driven backup orchestrator that uses Restic as its backend. All backup targets are defined in `config.yml`, validated at backup time, and executed via cron scheduling with application-aware hooks.
 
-**Core workflow**: Discovery (Docker labels) → Scheduling (cron jobs) → Execution (Runner) → Backend (Restic)
+**Core workflow**: Config Loading → Schedule Building → Cron Scheduling → Execution (Runner) → Backend (Restic/Custom)
 
-**Dynamic Discovery**: Marina continuously monitors Docker for changes via event listener and periodic polling, automatically adding/removing/updating backup jobs without requiring restarts.
+**Runtime Validation**: Targets are validated at backup time—missing containers or volumes are skipped with warnings logged.
 
 ### Key Components
 
-- **`internal/config/config.go`**: Parses `config.yml` and expands environment variable references (`${VAR}` or `$VAR`)
-- **`internal/docker/discovery.go`**: Scans Docker API for volumes/containers with `dev.polarfox.marina.*` labels, builds `BackupTarget` models
-- **`internal/docker/events.go`**: Listens to Docker events API for real-time detection of container/volume lifecycle changes (create, destroy, start, stop)
-- **`internal/runner/runner.go`**: Orchestrates backup execution and manages dynamic job scheduling—handles pre/post hooks, container stop/start, and delegates to appropriate backend destination
+- **`internal/config/config.go`**: Parses `config.yml` and expands environment variable references (`${VAR}` or `$VAR`); defines `BackupInstance` and `TargetConfig` structs
+- **`internal/scheduler/builder.go`**: Converts config instances to backup schedules; validates that targets have exactly one of `volume` or `db` set
+- **`internal/runner/runner.go`**: Orchestrates backup execution and cron scheduling; manages job lifecycle and status tracking
+- **`internal/runner/volume.go`**: Handles volume staging—container stopping, data copying, pre/post hooks, cleanup
+- **`internal/runner/database.go`**: Handles database staging—dump creation, auto-detection of DB type, pre/post hooks, cleanup
+- **`internal/runner/helpers.go`**: Validation utilities (file size checks, deduplication)
 - **`internal/backend/restic.go`**: Wraps Restic CLI commands (backup, forget, prune) with repository and environment variables
+- **`internal/backend/custom_image.go`**: Custom Docker image backend support for alternative backup destinations
 - **`internal/model/model.go`**: Defines `BackupTarget` (volume or DB), `Retention` policy, and job state
-- **`cmd/manager/main.go`**: Entry point—loads config, creates destinations map, performs initial discovery, starts periodic rediscovery loop and event listener, and manages runner lifecycle
+- **`internal/database/database.go`**: SQLite database for persistent job status and log storage
+- **`internal/logging/logger.go`**: Structured logging with job-specific loggers that write to both stdout and database
+- **`cmd/manager/main.go`**: Entry point—loads config, creates backend instances, builds schedules, starts runner and cron scheduler
+- **`cmd/api/main.go`**: REST API server for querying job status, logs, and schedules; supports mesh mode for multi-node federation
 
 ### Configuration System
 
-Marina uses a two-tier configuration approach:
+Marina uses a single `config.yml` file that defines all backup instances and their targets. Environment variable expansion is supported using `${VAR_NAME}` or `$VAR_NAME` syntax.
 
-1. **`config.yml`**: Defines backup destinations (repositories and credentials)
-2. **Docker labels**: Define what to backup, when, and to which destination
-
-**config.yml structure** (supports environment variable expansion):
+**config.yml structure**:
 
 ```yaml
 instances:
@@ -33,115 +36,130 @@ instances:
     repository: s3:https://fsn1.your-objectstorage.com/bucket
     schedule: "0 2 * * *" # Cron schedule for this instance's backups
     retention: "30d:12w:24m" # Optional: instance-specific retention
-    resticTimeout: "10m" # Optional: instance-specific timeout (default 5m)
+    resticTimeout: "10m" # Optional: instance-specific timeout (default 60m)
     env:
       AWS_ACCESS_KEY_ID: ${AWS_KEY}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET}
       RESTIC_PASSWORD: ${RESTIC_PASS}
-  - id: local-backup
-    repository: /mnt/backup/restic
+    targets:
+      - volume: app-data
+        paths: ["/"] # Optional: paths relative to volume root
+        stopAttached: false # Optional: stop containers during backup
+        preHook: "" # Optional: command before backup
+        postHook: "" # Optional: command after backup
+      - db: postgres # Container name
+        dbKind: postgres # Optional: auto-detected if not specified
+        dumpArgs: ["--clean"] # Optional: additional dump arguments
+
+  - id: custom-backup
+    customImage: your-registry/backup:latest # Alternative to Restic
     schedule: "0 3 * * *"
     env:
-      RESTIC_PASSWORD: direct-value-also-works
+      BACKUP_TOKEN: ${TOKEN}
+    targets:
+      - volume: custom-data
 
-# Global defaults that can be overridden by instance config or Docker labels
+# Global defaults (can be overridden per instance or target)
 retention: "14d:8w:12m" # Format: daily:weekly:monthly
-stopAttached: true # Stop containers when backing up volumes
-resticTimeout: "60m" # Global timeout for backup operations (format: "5m", "30s", "1h")
+stopAttached: true # Default for all volume targets
+resticTimeout: "60m" # Global timeout for backup operations
+
+# Runtime configuration
+dbPath: "/var/lib/marina/marina.db" # Database path (default shown)
+apiPort: "8080" # API server port (default shown)
+corsOrigins: # Additional CORS origins (optional)
+  - https://marina.example.com
 
 # Optional mesh configuration for multi-node federation
 mesh:
-  nodeName: ${NODE_NAME} # Optional custom node name
-  authPassword: ${MARINA_AUTH_PASSWORD} # Password for mesh auth and dashboard
+  nodeName: ${NODE_NAME} # Required for custom node name (defaults to hostname)
+  authPassword: ${MARINA_AUTH_PASSWORD} # Required for authentication
   peers:
     - http://marina-node2:8080
-    - http://marina-node3:8080
 ```
 
-Environment variables in config.yml are expanded using `${VAR_NAME}` or `$VAR_NAME` syntax.
-
-**Configuration hierarchy**: Instance config > Global config > Docker labels > Hardcoded defaults
+**Configuration hierarchy**: Instance config > Global config > Target config > Hardcoded defaults
 
 - Schedule: Required per-instance in config.yml
 - Retention: Instance-specific (optional) > Global `retention` > Hardcoded default "7d:4w:6m"
-- StopAttached: Global `stopAttached` > Label > Hardcoded default false
+- StopAttached: Target-specific > Global `stopAttached` > Hardcoded default false
 - Timeout: Instance-specific (optional) > Global `resticTimeout` > Hardcoded default "60m"
+- Node name: `mesh.nodeName` > hostname (no environment variable fallback)
+- Auth password: `mesh.authPassword` only (no environment variable fallback)
 
-### Label-Driven Configuration
+**Target validation**: Each target must have exactly one of `volume` or `db` set. The `scheduler.BuildSchedulesFromConfig` function validates this at startup and returns an error for invalid configurations.
 
-All backup configuration lives in Docker labels with namespace `dev.polarfox.marina.*`. See `labels.txt` for reference.
-
-**Volume backup labels** (on volumes):
-
-```yaml
-dev.polarfox.marina.enabled: "true"
-dev.polarfox.marina.instanceID: "hetzner-s3" # Maps to config.yml instance (schedule comes from there)
-dev.polarfox.marina.paths: "/" # Relative to volume/_data
-dev.polarfox.marina.stopAttached: "true" # Stop containers using volume
-```
-
-**DB backup labels** (on DB containers):
-
-```yaml
-dev.polarfox.marina.enabled: "true"
-dev.polarfox.marina.db: "postgres" # postgres|mysql|mariadb|mongo|redis
-dev.polarfox.marina.instanceID: "hetzner-s3" # Maps to config.yml instance
-dev.polarfox.marina.dump.args: "--clean,--if-exists" # For postgres
-# For MySQL/MariaDB, pass credentials via dump.args (no MYSQL_PWD needed):
-# dev.polarfox.marina.dump.args: "-uroot,-p${PASSWORD}"
-```
-
-**Important for MySQL/MariaDB**: Do NOT set `MYSQL_PWD` environment variable as it interferes with container initialization. Instead, pass credentials via `dump.args` label using `-uroot,-pPASSWORD` format (no spaces after commas).
+**Important for MySQL/MariaDB**: Do NOT set `MYSQL_PWD` environment variable as it interferes with container initialization. Instead, pass credentials via `dumpArgs` using `["-uroot", "-pPASSWORD"]` format.
 
 ### Data Flow Patterns
 
-1. **Volume backups**:
+1. **Volume backups** (`internal/runner/volume.go`):
 
-   - Volume data copied to staging directory via temporary Alpine container with volume mounted read-only
-   - Marina detects the actual host path for `/backup` by inspecting its own container mounts
-   - Temporary container started with source volume at `/source` (read-only) and host staging path bind mounted at `/backup`
-   - Marina's `/backup` directory must be mounted from the host filesystem (not a Docker volume)
-   - Data copied using `cp -a` to preserve attributes into `/backup/volume/{name}/{timestamp}/`
-   - Staging subdirectory cleaned up automatically after backup completes
-   - If `stopAttached=true`, stops non-readonly mounted containers before backup
-   - Pre/post hooks execute in _first attached container_ (`AttachedCtrs[0]`)
+   - Validates volume exists via Docker API at backup time (skipped with warning if missing)
+   - Finds containers using the volume (for hooks and optional stopping)
+   - Executes pre-hook in first attached container (if specified)
+   - Stops attached containers if `stopAttached=true` (skips read-only mounts)
+   - Copies volume data to staging via temporary Alpine container: `/backup/{instanceID}/{timestamp}/volume/{name}/`
+   - Marina detects actual host path for `/backup` by inspecting its own container mounts at startup
+   - Validates staged files have content (errors if empty)
+   - Cleanup function: removes staging directory and restarts stopped containers (executed via defer)
+   - Post-hook executes in first attached container after backup completes
 
-2. **DB backups**:
+1. **DB backups** (`internal/runner/database.go`):
 
-   - Dump executed _inside DB container_ via `docker exec` to `/tmp/marina-{timestamp}`
-   - Dump file copied out using Docker API to Marina's staging directory: `/backup/db/{name}/{timestamp}`
-   - Marina's `/backup` must be mounted from host filesystem
-   - Staging directory cleaned up after backup
-   - Pre/post hooks execute in the DB container itself
+   - Validates container exists via Docker API at backup time (skipped with warning if missing)
+   - Auto-detects database type from container image if `dbKind` not specified
+   - Executes pre-hook inside DB container (if specified)
+   - Creates dump inside container at `/tmp/marina-{timestamp}` using appropriate tool (pg_dumpall, mysqldump, mariadb-dump, mongodump)
+   - Copies dump file to staging: `/backup/{instanceID}/{timestamp}/db/{name}/`
+   - Validates dump file has content (errors if empty)
+   - Cleanup function: removes `/tmp/marina-*` from container and staging directory on host
+   - Post-hook executes inside DB container after backup completes
 
-3. **Retention**:
+1. **Backend execution**:
+
+   - All staged paths from all targets collected into single list
+   - Tags generated for each target: `volume:name` or `db:name`
+   - Restic backend: `restic backup` with all paths in one operation, then `forget` + `prune` for retention
+   - Custom image backend: Container created with `/backup/{instanceID}` mounted, runs `/backup.sh` script
+   - Failed targets logged but don't stop other targets from being backed up
+
+1. **Retention**:
    - Applied _after every backup_ via `DeleteOldSnapshots()`
-   - Parsed from label like `"7d:14w:6m"` → `--keep-daily 7 --keep-weekly 14 --keep-monthly 6`
+   - Parsed from config like `"7d:14w:6m"` → `--keep-daily 7 --keep-weekly 14 --keep-monthly 6`
    - Defaults: 7 daily, 4 weekly, 6 monthly (see `helpers/retention.go`)
 
 ### Critical Patterns
 
-**Dynamic job management**: Runner tracks scheduled jobs in `scheduledJobs` map (target ID → cron.EntryID); `SyncTargets()` diffs current vs new targets to add/remove/update jobs without restart
+**Static scheduling**: Schedules built once at startup from config; no dynamic discovery or event listening. To add/remove targets, update config.yml and restart Marina.
 
-**Multi-destination support**: Runner accepts a map of `BackupDestination` objects keyed by ID; each backup target references a destination by ID, and the runner looks it up at execution time
+**Job lifecycle tracking**: Runner tracks scheduled jobs in `scheduledJobs` map (instance ID → cron.EntryID); `SyncBackups()` updates schedules if config changes
 
-**Event debouncing**: Docker event listener debounces events (2s delay) to prevent excessive rediscovery during rapid container lifecycle changes (e.g., compose down/up)
+**Multi-backend support**: Runner accepts a map of `Backend` objects keyed by instance ID; supports both Restic and custom Docker image backends
 
-**Deferred cleanup**: Pre/post hooks and container restarts use `defer` to ensure cleanup even on error (see `runner.go`)
+**Runtime validation**: Targets validated at backup time via Docker API—missing volumes/containers skipped with warnings, don't fail entire backup
 
-**Read-only volume detection**: Skips stopping containers mounted with `Mode == "ro"` to avoid unnecessary disruption
+**Deferred cleanup**: Pre/post hooks and container restarts use `defer` to ensure cleanup even on error (see `volume.go`, `database.go`)
 
-**Host path detection**: Marina detects the actual host path for `/backup` by inspecting its own container mounts at startup, then uses this for bind mounts in temporary containers
+**Read-only volume detection**: Skips stopping containers when target volume is mounted with `Mode == "ro"` to avoid unnecessary disruption
+
+**Host path detection**: Marina detects actual host path for `/backup` by inspecting its own container mounts at startup (see `docker.GetBackupHostPath`), then uses this for bind mounts in temporary containers
 
 **Cron parser**: Uses `robfig/cron/v3` with 5-field standard format (minute hour dom month dow), not 6-field with seconds
 
 **Shell invocation**: All hooks/dumps use `/bin/sh -lc` to ensure login shell and proper env loading
 
-**Error handling**: Errors bubble up but post-hooks/cleanup still execute via defer; runner logs job failures but continues scheduling
+**Error handling**: Individual target failures don't stop other targets; errors logged but backup continues. Post-hooks/cleanup still execute via defer.
 
 **Environment variable expansion**: Config loader uses regex to match `${VAR}` and `$VAR` patterns and expands them using `os.Getenv()`
 
 **Restic unlock on backup**: Before each backup, Restic automatically runs `unlock` to clear stale locks from crashed or stopped processes
+
+**Database auto-detection**: `detectDBKind()` in `database.go` checks container image name for "postgres", "mysql", "mariadb", "mongo", "redis"
+
+**Logging**: Structured logging with job-specific loggers; logs written to both stdout and SQLite database for API queries
+
+**Job status persistence**: SQLite database tracks job history, status, timestamps, target counts; survives restarts
 
 **macOS compatibility**: On macOS with Docker Desktop, Restic repositories must use Docker named volumes (not bind mounts) to avoid "bad file descriptor" errors during fsync operations caused by the Docker VM filesystem layer (osxfs/VirtioFS)
 
@@ -165,24 +183,55 @@ export CONFIG_FILE=/path/to/config.yml
 ./marina
 ```
 
-**Test discovery** without scheduling:
+**Test config loading and schedule building**:
 
 ```go
-disc, _ := docker.NewDiscoverer()
-targets, _ := disc.Discover(ctx)
-// Inspect targets slice
+cfg, _ := config.Load("config.yml")
+schedules, _ := scheduler.BuildSchedulesFromConfig(cfg)
+// Inspect schedules slice
 ```
 
 ## Project Conventions
 
 - **Package structure**: `cmd/` for binaries, `internal/` for libraries (not importable outside module)
-- **Interfaces**: `BackupDestination` could support backends beyond Restic, but currently only Restic impl exists
+- **Interfaces**: `Backend` interface supports multiple backends (Restic, custom Docker images)
 - **Error wrapping**: Use `fmt.Errorf("context: %w", err)` for wrappable errors throughout
-- **Logging**: Runner accepts `Logf func(string, ...any)` for structured logging flexibility
-- **Tests**: Project has unit tests in `*_test.go` files and integration tests in `tests/integration/`
-- **Config format**: `config.yml` defines backup instances (mapped by ID); instances include repository URL and environment variables (credentials, etc.)
-- **Configuration philosophy**: Backup instances (repository, schedule, retention) in config.yml; target selection and hooks via Docker labels
+- **Logging**: Structured logging via `internal/logging`; job loggers write to both stdout and database
+- **Tests**: Project has unit tests in `*_test.go` files (see `internal/scheduler/builder_test.go`) and integration tests in `tests/integration/`
+- **Config format**: `config.yml` defines backup instances (mapped by ID) with embedded targets; instances include repository URL, schedule, environment variables, and target list
+- **Configuration philosophy**: All backup configuration in config.yml; no Docker labels; targets validated at runtime
+- **Runner organization**: Core orchestration in `runner.go`; staging logic split into `volume.go` and `database.go`; helpers in `helpers.go`
 - **CHANGELOG**: After making changes, add entries to the `## [Unreleased]` section in `CHANGELOG.md` following Keep a Changelog format (Added/Changed/Deprecated/Removed/Fixed/Security)
+
+## Code Quality Standards
+
+**Modern Go Code**: Always write modern, idiomatic Go code. If the IDE suggests modernization (e.g., using `any` instead of `interface{}`, using `strings.Cut` instead of `strings.Split`, simplifying range loops), apply those suggestions. Stay current with Go language features and best practices.
+
+**Code Quality Practices**:
+
+1. Use modern Go idioms and language features (Go 1.21+)
+1. Prefer `any` over `interface{}` for empty interfaces
+1. Use `strings.Cut`, `strings.CutPrefix`, `strings.CutSuffix` over index-based string manipulation where appropriate
+1. Simplify range loops when only the value is needed (omit the index variable)
+1. Use `clear()` builtin for clearing maps/slices when appropriate
+1. Minimize allocations in hot paths
+1. Add context parameters to functions that may block or be long-running
+1. Use structured error handling with `fmt.Errorf("context: %w", err)` for error wrapping
+1. Prefer early returns to reduce nesting depth
+1. Keep functions focused and under 50 lines when possible
+1. Use meaningful variable names (avoid single-letter names except for common idioms like `i`, `j`, `err`, `ctx`)
+1. Add package-level documentation comments for exported types and functions
+1. Group related functionality into focused files (e.g., `volume.go`, `database.go`, `helpers.go`)
+
+**Markdown Quality**: Always fix markdown linter issues. Proper markdown formatting is important for documentation quality. Common fixes:
+
+1. Ensure proper spacing around headers
+1. Use consistent list formatting (prefer `1.` for all ordered list items, not `1., 2., 3.`)
+1. Close code blocks properly
+1. Use consistent heading levels
+1. Add blank lines before and after code blocks and lists
+
+**Testing**: Write tests for new functionality. Use table-driven tests for testing multiple cases. Validate error messages and edge cases.
 
 ## Planned Features
 
@@ -202,9 +251,10 @@ targets, _ := disc.Discover(ctx)
 See `docker-compose.example.yml` for a complete deployment example with:
 
 - Marina manager container with Docker socket access
-- Volume and database backup examples with labels
-- Host bind mount for staging directory
-- S3/local backend configuration
+- Volume and database backup examples in config.yml
+- Host bind mount for staging directory (required)
+- S3/local/custom backend configuration
+- Mesh mode setup for multi-node federation
 
 ## Context
 
