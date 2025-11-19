@@ -25,7 +25,18 @@ func BuildSchedulesFromConfig(cfg *config.Config) ([]model.InstanceBackupSchedul
 
 		// Build targets from config (without Docker validation)
 		var targets []model.BackupTarget
-		for _, targetCfg := range inst.Targets {
+		for i, targetCfg := range inst.Targets {
+			// Validate target configuration
+			hasVolume := targetCfg.Volume != ""
+			hasDB := targetCfg.DB != ""
+
+			if hasVolume && hasDB {
+				return nil, fmt.Errorf("instance %s target #%d: cannot specify both 'volume' and 'db' in the same target", inst.ID, i+1)
+			}
+			if !hasVolume && !hasDB {
+				return nil, fmt.Errorf("instance %s target #%d: must specify either 'volume' or 'db'", inst.ID, i+1)
+			}
+
 			// Determine stopAttached: target config > global config > default (false)
 			stopAttached := false
 			if targetCfg.StopAttached != nil {
