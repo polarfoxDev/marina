@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Web UI: Restructured frontend with shadcn/ui component library
+  - Implemented shadcn/ui components (Button, Card, Badge, Table, Input) for improved consistency and maintainability
+  - Reorganized folder structure: view components moved to `src/views/`, base components in `src/components/`
+  - Added path aliases (`@/*`) for cleaner imports
+  - All UI components now use Tailwind CSS 4 compatible styling with class-variance-authority
+
 ## [0.6.0] - 2025-11-19
 
 ### Changed
