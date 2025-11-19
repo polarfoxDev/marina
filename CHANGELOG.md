@@ -7,11 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0] - 2025-11-19
-
 ### Added
 
-- File size validation: Backups now fail if ALL files are empty (0 bytes), preventing silent failures from database dumps or volume copies. Individual empty files are allowed (normal for lock files, .gitkeep, etc.) as long as at least one file has content
+- Shorthand syntax for target configuration: `"volume:name"` and `"db:name"` for simpler configuration
+- Auto-detection of database type (`dbKind`) from container image name (supports postgres, mysql, mariadb, mongo, redis)
+- Support for mixing shorthand and full object syntax in the same targets list
 
 ### Changed
 
@@ -21,16 +21,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Container and volume names in config.yml must match actual Docker container/volume names
   - Discovery now verifies configured targets exist rather than scanning for labeled resources
   - Simplified configuration: all backup settings now in one file instead of split between config.yml and docker-compose.yml
-- **BREAKING**: Removed `dev.polarfox.marina.tags` label - Marina now auto-generates a single tag for each backup
-  - Volume backups: `volume:<name>`
-  - Database backups: `db:<kind>`
-- Web UI: Log level filter now defaults to INFO instead of "All Levels"
-- Web UI: Log level filtering now works hierarchically (DEBUG shows all logs, INFO shows INFO+WARN+ERROR, WARN shows WARN+ERROR, ERROR shows only ERROR)
 
 ### Removed
 
 - **BREAKING**: Removed `internal/labels` package (no longer needed)
 - **BREAKING**: Docker labels are no longer used for backup configuration
+
+## [0.5.0] - 2025-11-19
+
+### Added
+
+- File size validation: Backups now fail if ALL files are empty (0 bytes), preventing silent failures from database dumps or volume copies. Individual empty files are allowed (normal for lock files, .gitkeep, etc.) as long as at least one file has content
+
+### Changed
+- **BREAKING**: Removed `dev.polarfox.marina.tags` label - Marina now auto-generates a single tag for each backup
+  - Volume backups: `volume:<name>`
+  - Database backups: `db:<kind>`
+- `dbKind` is now optional for database targets (auto-detected from container image if not specified)
+- Web UI: Log level filter now defaults to INFO instead of "All Levels"
+- Web UI: Log level filtering now works hierarchically (DEBUG shows all logs, INFO shows INFO+WARN+ERROR, WARN shows WARN+ERROR, ERROR shows only ERROR)
 
 ### Fixed
 

@@ -45,14 +45,17 @@ instances:
     env:
       RESTIC_PASSWORD: your-restic-password
     targets:
-      # Volume backups
-      - volume: app-data
-        paths: ["/"]
-        stopAttached: true
-      # Database backups
-      - db: postgres
-        dbKind: postgres
-        preHook: "psql -U myapp -c 'CHECKPOINT;'"
+      # Shorthand syntax (recommended)
+      - "volume:app-data"
+      - "db:postgres"      # dbKind auto-detected from container image
+      
+      # Full object syntax (use when you need custom options)
+      # - volume: app-data
+      #   paths: ["/data"]
+      #   stopAttached: true
+      # - db: postgres
+      #   dbKind: postgres   # Override auto-detection
+      #   preHook: "psql -U myapp -c 'CHECKPOINT;'"
 
 # Optional global defaults
 stopAttached: true  # Stop containers when backing up volumes
@@ -162,7 +165,25 @@ Marina uses a single configuration file (`config.yml`) to define backup instance
 
 ### Target Configuration
 
-Each backup instance can have multiple targets configured:
+Each backup instance can have multiple targets configured. Targets support two syntaxes:
+
+**Shorthand syntax** (recommended for simple targets):
+```yaml
+targets:
+  - "volume:app-data"
+  - "db:postgres"
+```
+
+**Full object syntax** (for advanced options):
+```yaml
+targets:
+  - volume: app-data
+    paths: ["/data"]
+    stopAttached: true
+  - db: postgres
+    dbKind: postgres
+    dumpArgs: ["--clean"]
+```
 
 #### Volume Targets
 
@@ -179,10 +200,12 @@ Each backup instance can have multiple targets configured:
 | Field      | Required | Description                                          | Example                                                    |
 | ---------- | -------- | ---------------------------------------------------- | ---------------------------------------------------------- |
 | `db`       | Yes      | Container name (as shown in `docker ps`)             | `"postgres"`, `"my-mysql"`                                 |
-| `dbKind`   | Yes      | Database type                                        | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
+| `dbKind`   | No*      | Database type (auto-detected if not provided)        | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
 | `dumpArgs` | No       | Additional arguments for dump command                | `["--clean", "--if-exists"]` (PostgreSQL)                  |
 | `preHook`  | No       | Command to run before backup (inside DB container)   | `"psql -U myapp -c 'CHECKPOINT;'"`                         |
 | `postHook` | No       | Command to run after backup (inside DB container)    | `"echo Done"`                                              |
+
+**\*dbKind auto-detection**: Marina automatically detects the database type from the container image name (e.g., `postgres:16` → `postgres`). You can override this by explicitly specifying `dbKind`. If detection fails and no `dbKind` is provided, the target will be skipped.
 
 **Important for MySQL/MariaDB**: Pass credentials via `dumpArgs` using `["-uroot", "-pPASSWORD"]` format. Do not set `MYSQL_PWD` environment variable as it interferes with container initialization.
 

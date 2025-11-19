@@ -114,9 +114,16 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 					continue
 				}
 
-				if targetCfg.DBKind == "" {
-					// DBKind is required for database targets
-					continue
+				// Determine dbKind: use config value or auto-detect from image
+				dbKind := targetCfg.DBKind
+				if dbKind == "" {
+					// Auto-detect from container image
+					dbKind = detectDBKind(ctr.Image)
+					if dbKind == "" {
+						// Failed to detect dbKind - skip this target
+						// In production, this would log an error
+						continue
+					}
 				}
 
 				containerName := strings.TrimPrefix(firstNonEmpty(ctr.Names...), "/")
@@ -127,7 +134,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 					InstanceID:  model.InstanceID(inst.ID),
 					PreHook:     targetCfg.PreHook,
 					PostHook:    targetCfg.PostHook,
-					DBKind:      strings.ToLower(targetCfg.DBKind),
+					DBKind:      strings.ToLower(dbKind),
 					ContainerID: ctr.ID,
 					DumpArgs:    targetCfg.DumpArgs,
 				}
@@ -164,6 +171,29 @@ func (d *Discoverer) Discover(ctx context.Context) ([]model.InstanceBackupSchedu
 	}
 
 	return schedules, nil
+}
+
+// detectDBKind attempts to detect the database type from the container image name
+func detectDBKind(imageName string) string {
+	// Convert to lowercase for case-insensitive matching
+	image := strings.ToLower(imageName)
+
+	// Check for common database image patterns
+	// Format is typically: "postgres:16" or "docker.io/library/postgres:16"
+	switch {
+	case strings.Contains(image, "postgres"):
+		return "postgres"
+	case strings.Contains(image, "mysql"):
+		return "mysql"
+	case strings.Contains(image, "mariadb"):
+		return "mariadb"
+	case strings.Contains(image, "mongo"):
+		return "mongo"
+	case strings.Contains(image, "redis"):
+		return "redis"
+	default:
+		return ""
+	}
 }
 
 func firstNonEmpty(ss ...string) string {

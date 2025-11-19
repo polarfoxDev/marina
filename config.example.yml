@@ -10,23 +10,23 @@ instances:
       AWS_DEFAULT_REGION: fsn1
       RESTIC_PASSWORD: your-restic-password
     targets:
-      # Volume backup example
-      - volume: app-uploads
-        paths: ["/"]
-        stopAttached: true
-      - volume: app-config
-        paths: ["/"]
-      # Database backup examples
-      - db: app-postgres
-        dbKind: postgres
-        preHook: "psql -U myapp -c 'CHECKPOINT;'"
-        postHook: "echo 'Backup completed'"
-      - db: app-mysql
-        dbKind: mysql
-        dumpArgs: ["-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
-      - db: app-mariadb
-        dbKind: mariadb
-        dumpArgs: ["-uroot", "-p${MARIADB_ROOT_PASSWORD}"]
+      # Shorthand syntax (recommended for simple targets)
+      - "volume:app-uploads"
+      - "volume:app-config"
+      - "db:app-postgres"  # dbKind auto-detected from image (postgres, mysql, mariadb, mongo, redis)
+      - "db:app-mysql"
+      - "db:app-mariadb"
+      
+      # Full object syntax (use when you need custom settings)
+      # - volume: app-uploads
+      #   paths: ["/data", "/config"]  # Specific paths instead of root "/"
+      #   stopAttached: true           # Stop containers during backup
+      #   preHook: "echo Starting"     # Command before backup
+      #   postHook: "echo Done"        # Command after backup
+      # - db: app-postgres
+      #   dbKind: postgres              # Override auto-detection
+      #   dumpArgs: ["--clean", "--if-exists"]  # Custom dump arguments
+      #   preHook: "psql -U myapp -c 'CHECKPOINT;'"
 
   - id: local-backup
     repository: /mnt/backup/restic
@@ -35,8 +35,7 @@ instances:
     env:
       RESTIC_PASSWORD: your-restic-password
     targets:
-      - volume: important-data
-        stopAttached: false
+      - "volume:important-data"
 
   - id: env-example
     repository: s3:https://nyc3.digitaloceanspaces.com/my-backup-bucket

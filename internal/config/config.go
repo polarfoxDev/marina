@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -37,6 +38,9 @@ type BackupInstance struct {
 }
 
 // TargetConfig represents a backup target configuration
+// Supports both object notation and shorthand string notation:
+//   Object: {volume: "app-data", paths: ["/"]}
+//   Shorthand: "volume:app-data" or "db:postgres"
 type TargetConfig struct {
 	Volume       string   `yaml:"volume,omitempty"`       // Volume name (mutually exclusive with DB)
 	DB           string   `yaml:"db,omitempty"`           // Container name for database (mutually exclusive with Volume)
@@ -44,8 +48,49 @@ type TargetConfig struct {
 	StopAttached *bool    `yaml:"stopAttached,omitempty"` // Stop containers using volume (for volumes)
 	PreHook      string   `yaml:"preHook,omitempty"`      // Command to run before backup
 	PostHook     string   `yaml:"postHook,omitempty"`     // Command to run after backup
-	DBKind       string   `yaml:"dbKind,omitempty"`       // Database type: postgres, mysql, mariadb, mongo, redis
+	DBKind       string   `yaml:"dbKind,omitempty"`       // Database type: postgres, mysql, mariadb, mongo, redis (auto-detected if not provided)
 	DumpArgs     []string `yaml:"dumpArgs,omitempty"`     // Arguments for database dump command
+}
+
+// UnmarshalYAML implements custom YAML unmarshaling to support both object and shorthand string notation
+func (tc *TargetConfig) UnmarshalYAML(value *yaml.Node) error {
+	// Check if it's a string (shorthand notation)
+	if value.Kind == yaml.ScalarNode {
+		shorthand := value.Value
+		parts := strings.SplitN(shorthand, ":", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid target shorthand %q: must be in format 'volume:name' or 'db:name'", shorthand)
+		}
+
+		targetType := strings.TrimSpace(parts[0])
+		targetName := strings.TrimSpace(parts[1])
+
+		if targetName == "" {
+			return fmt.Errorf("invalid target shorthand %q: target name cannot be empty", shorthand)
+		}
+
+		switch targetType {
+		case "volume":
+			tc.Volume = targetName
+			// Paths will default to ["/"] in discovery
+		case "db":
+			tc.DB = targetName
+			// DBKind will be auto-detected from container image in discovery
+		default:
+			return fmt.Errorf("invalid target shorthand %q: type must be 'volume' or 'db', got %q", shorthand, targetType)
+		}
+
+		return nil
+	}
+
+	// Otherwise, unmarshal as a normal struct
+	type rawTargetConfig TargetConfig
+	var raw rawTargetConfig
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*tc = TargetConfig(raw)
+	return nil
 }
 
 // Load reads and parses the config file, expanding environment variables
