@@ -32,8 +32,17 @@ func main() {
 
 	ctx := context.Background()
 
+	// Load configuration from config.yml
+	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+
 	// Initialize unified database for both job status and logs
-	dbPath := envDefault("DB_PATH", "/var/lib/marina/marina.db")
+	dbPath := cfg.DBPath
+	if dbPath == "" {
+		dbPath = "/var/lib/marina/marina.db"
+	}
 	db, err := database.InitDB(dbPath)
 	if err != nil {
 		log.Fatalf("init database: %v", err)
@@ -58,16 +67,11 @@ func main() {
 		logger.Info("marked %d interrupted job(s) as aborted", cleaned)
 	}
 
-	// Load configuration from config.yml
-	cfg, err := config.Load(envDefault("CONFIG_FILE", "config.yml"))
-	if err != nil {
-		log.Fatalf("load config: %v", err)
-	}
-
-	// Build map of instances from config
-	instances := make(map[model.InstanceID]backend.Backend)
-	nodeName := os.Getenv("NODE_NAME")
-	if nodeName == "" {
+	// Determine node name from mesh config (required if mesh is configured)
+	nodeName := ""
+	if cfg.Mesh != nil && cfg.Mesh.NodeName != "" {
+		nodeName = cfg.Mesh.NodeName
+	} else {
 		hn, err := os.Hostname()
 		if err != nil {
 			logger.Warn("failed to get hostname: %v", err)
@@ -75,12 +79,15 @@ func main() {
 		}
 		nodeName = hn
 	}
-	logger.Info("using hostname %s for backups", nodeName)
+	logger.Info("using node name %s for backups", nodeName)
+
+	// Build map of instances from config
+	instances := make(map[model.InstanceID]backend.Backend)
 	for _, dest := range cfg.Instances {
 		var backendInstance backend.Backend
 		var backendErr error
 
-		// Parse resticresticTimeout (instance-specific or global default)
+		// Parse restic timeout (instance-specific or global default)
 		timeoutStr := dest.ResticTimeout
 		if timeoutStr == "" {
 			timeoutStr = cfg.ResticTimeout

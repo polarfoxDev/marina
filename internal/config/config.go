@@ -14,6 +14,9 @@ type Config struct {
 	Retention     string           `yaml:"retention,omitempty"`     // Global default retention
 	StopAttached  *bool            `yaml:"stopAttached,omitempty"`  // Global default stopAttached
 	ResticTimeout string           `yaml:"resticTimeout,omitempty"` // Global default timeout (e.g., "5m", "30s")
+	DBPath        string           `yaml:"dbPath,omitempty"`        // Database path (default: "/var/lib/marina/marina.db")
+	APIPort       string           `yaml:"apiPort,omitempty"`       // API server port (default: "8080")
+	CorsOrigins   []string         `yaml:"corsOrigins,omitempty"`   // Additional CORS origins for API server
 	Mesh          *MeshConfig      `yaml:"mesh,omitempty"`          // Optional mesh configuration
 }
 
@@ -84,6 +87,13 @@ func Load(path string) (*Config, error) {
 				cfg.Instances[i].Targets[j].DumpArgs[k] = expandEnv(cfg.Instances[i].Targets[j].DumpArgs[k])
 			}
 		}
+	}
+
+	// Expand environment variables in runtime config
+	cfg.DBPath = expandEnv(cfg.DBPath)
+	cfg.APIPort = expandEnv(cfg.APIPort)
+	for i := range cfg.CorsOrigins {
+		cfg.CorsOrigins[i] = expandEnv(cfg.CorsOrigins[i])
 	}
 
 	// Expand environment variables in mesh config
