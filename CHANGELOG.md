@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-11-19
+
 ### Added
 
 - File size validation: Backups now fail if ALL files are empty (0 bytes), preventing silent failures from database dumps or volume copies. Individual empty files are allowed (normal for lock files, .gitkeep, etc.) as long as at least one file has content
@@ -124,7 +126,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/polarfoxDev/marina/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/polarfoxDev/marina/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/polarfoxDev/marina/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/polarfoxDev/marina/compare/v0.3.0...v0.3.1
