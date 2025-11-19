@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed support for `dev.polarfox.marina.*` Docker labels
   - Target validation now happens at backup time, not at startup
   - Volumes and containers are looked up by name during backup execution
-  - Failed with clear error messages if configured volume/container doesn't exist
+  - Fails with clear error messages if configured volume/container doesn't exist
 - **BREAKING**: Removed shorthand syntax for target configuration (e.g., `"volume:name"` and `"db:name"`)
   - Use proper YAML syntax instead: `volume: name` or `db: name`
   - This makes configuration clearer and removes unnecessary string parsing
