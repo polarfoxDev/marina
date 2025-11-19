@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -502,6 +503,14 @@ func (r *Runner) stageVolume(ctx context.Context, instanceID, timestamp string, 
 		}
 	}
 
+	// Validate staged files have content
+	if err := validateFileSize(stagedPaths, jobLogger); err != nil {
+		// Run cleanup immediately since we're returning an error and the cleanup
+		// function won't be added to the deferred cleanups list in runInstanceBackup
+		cleanup()
+		return nil, nil, fmt.Errorf("validation failed: %w", err)
+	}
+
 	return stagedPaths, cleanup, nil
 }
 
@@ -575,6 +584,14 @@ func (r *Runner) stageDatabase(ctx context.Context, instanceID, timestamp string
 		_ = os.RemoveAll(hostStagingDir)
 	}
 
+	// Validate dump file has content
+	if err := validateFileSize([]string{hostDumpPath}, jobLogger); err != nil {
+		// Run cleanup immediately since we're returning an error and the cleanup
+		// function won't be added to the deferred cleanups list in runInstanceBackup
+		cleanup()
+		return "", nil, fmt.Errorf("dump validation failed: %w", err)
+	}
+
 	return hostDumpPath, cleanup, nil
 }
 
@@ -640,3 +657,69 @@ func buildDumpCmd(t model.BackupTarget, dumpDir string) (cmd string, output stri
 }
 
 func stringsJoin(ss ...string) string { return strings.Join(ss, " ") }
+
+// validateFileSize checks that at least one file with content (size > 0) exists in the given paths.
+// It recursively walks directories and validates that there's at least one non-empty file.
+// Returns an error if all files are empty or no files exist (indicating a likely backup failure).
+// Optimized to return early as soon as a non-empty file is found.
+func validateFileSize(paths []string, jobLogger *logging.JobLogger) error {
+	var totalFiles int
+	var emptyFiles []string
+	foundNonEmpty := false
+
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("cannot access %s: %w", path, err)
+		}
+
+		if info.IsDir() {
+			// Walk directory and look for at least one non-empty file
+			err := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() {
+					totalFiles++
+					fileInfo, err := d.Info()
+					if err != nil {
+						return fmt.Errorf("cannot stat file %s: %w", p, err)
+					}
+					if fileInfo.Size() == 0 {
+						emptyFiles = append(emptyFiles, p)
+					} else {
+						// Found a non-empty file - we can return early
+						foundNonEmpty = true
+						return filepath.SkipAll
+					}
+				}
+				return nil
+			})
+			if err != nil && err != filepath.SkipAll {
+				return fmt.Errorf("error walking directory %s: %w", path, err)
+			}
+			// If we found a non-empty file, we're done
+			if foundNonEmpty {
+				return nil
+			}
+		} else {
+			// Single file - check it
+			totalFiles++
+			if info.Size() == 0 {
+				emptyFiles = append(emptyFiles, path)
+			} else {
+				// Found non-empty file, return success immediately
+				return nil
+			}
+		}
+	}
+
+	// Check if we have any files at all
+	if totalFiles == 0 {
+		return fmt.Errorf("no files found in backup paths")
+	}
+
+	// If we got here, all files were empty
+	jobLogger.Warn("all %d file(s) are empty (0 bytes): %v", totalFiles, emptyFiles)
+	return fmt.Errorf("all %d file(s) are empty (0 bytes) - backup likely failed silently", totalFiles)
+}
