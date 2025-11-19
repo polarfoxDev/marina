@@ -720,6 +720,6 @@ func validateFileSize(paths []string, jobLogger *logging.JobLogger) error {
 	}
 
 	// If we got here, all files were empty
-	jobLogger.Warn("all %d file(s) are empty (0 bytes): %v", totalFiles, emptyFiles)
+	jobLogger.Warn("all %d file(s) are empty (0 bytes)", totalFiles)
 	return fmt.Errorf("all %d file(s) are empty (0 bytes) - backup likely failed silently", totalFiles)
 }
