@@ -1,10 +1,12 @@
 package backend
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -12,6 +14,11 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 )
+
+// LogWriter is an interface for logging output during backup operations
+type LogWriter interface {
+	Debug(format string, args ...any)
+}
 
 // CustomImageBackend implements the Backend interface using a custom Docker image
 type CustomImageBackend struct {
@@ -21,6 +28,12 @@ type CustomImageBackend struct {
 	Hostname       string
 	HostBackupPath string
 	dockerClient   *client.Client
+	logger         LogWriter
+}
+
+// SetLogger sets the logger for streaming output
+func (b *CustomImageBackend) SetLogger(logger LogWriter) {
+	b.logger = logger
 }
 
 // NewCustomImageBackend creates a new custom image backend
@@ -117,36 +130,110 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 		_ = b.dockerClient.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout})
 	}()
 
+	// Start streaming logs before starting the container
+	logStream, err := b.dockerClient.ContainerLogs(ctx, containerID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Timestamps: false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("attach to container logs: %w", err)
+	}
+
 	// Start the container
 	if err := b.dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		logStream.Close()
 		return "", fmt.Errorf("start backup container: %w", err)
 	}
 
+	// Stream logs in a goroutine
+	logChan := make(chan string, 100)
+	errChan := make(chan error, 1)
+	go func() {
+		defer logStream.Close()
+		defer close(logChan)
+		
+		// Use a scanner to read logs line by line
+		scanner := bufio.NewScanner(logStream)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Docker logs may have 8-byte headers, strip them if present
+			if len(line) > 8 {
+				line = line[8:]
+			}
+			logChan <- line
+		}
+		if err := scanner.Err(); err != nil && err != io.EOF {
+			errChan <- fmt.Errorf("read logs: %w", err)
+		}
+	}()
+
+	// Stream logs to the logger as they arrive
+	var allLogs []string
+	logDone := false
+	go func() {
+		for line := range logChan {
+			allLogs = append(allLogs, line)
+			if b.logger != nil {
+				b.logger.Debug("%s", line)
+			}
+		}
+		logDone = true
+	}()
+
 	// Wait for container to complete
-	statusCh, errCh := b.dockerClient.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	statusCh, waitErrCh := b.dockerClient.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	var exitCode int64
 	select {
-	case err := <-errCh:
+	case err := <-waitErrCh:
 		if err != nil {
 			return "", fmt.Errorf("wait for container: %w", err)
 		}
 	case status := <-statusCh:
-		if status.StatusCode != 0 {
-			// Get logs to show what went wrong
-			logs, _ := b.getContainerLogs(ctx, containerID)
-			_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
-			return logs, fmt.Errorf("backup container exited with code %d", status.StatusCode)
-		}
+		exitCode = status.StatusCode
 	}
 
-	// Get container logs
-	logs, err := b.getContainerLogs(ctx, containerID)
-	if err != nil {
-		return "", fmt.Errorf("get container logs: %w", err)
+	// Wait for log streaming to complete
+	for !logDone {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Check for any log reading errors
+	select {
+	case err := <-errChan:
+		if err != nil {
+			_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+			return "", err
+		}
+	default:
 	}
 
 	_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
 
-	return logs, nil
+	// Check exit code
+	if exitCode != 0 {
+		logsStr := ""
+		for _, line := range allLogs {
+			logsStr += line + "\n"
+		}
+		return logsStr, fmt.Errorf("backup container exited with code %d", exitCode)
+	}
+
+	// Clean up staging directory after successful backup
+	if err := b.cleanupStagingDir(instanceStagingPath); err != nil {
+		// Log warning but don't fail the backup
+		if b.logger != nil {
+			b.logger.Debug("warning: failed to cleanup staging directory: %v", err)
+		}
+	}
+
+	// Return all collected logs
+	logsStr := ""
+	for _, line := range allLogs {
+		logsStr += line + "\n"
+	}
+	return logsStr, nil
 }
 
 // DeleteOldSnapshots is a no-op for custom images - they handle their own retention
@@ -165,22 +252,23 @@ func (b *CustomImageBackend) Close() error {
 	return nil
 }
 
-// getContainerLogs retrieves stdout and stderr from a container
-func (b *CustomImageBackend) getContainerLogs(ctx context.Context, containerID string) (string, error) {
-	out, err := b.dockerClient.ContainerLogs(ctx, containerID, container.LogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-	})
+// cleanupStagingDir removes timestamp directories from the staging area
+// but keeps the instance directory itself for the next backup
+func (b *CustomImageBackend) cleanupStagingDir(instancePath string) error {
+	entries, err := os.ReadDir(instancePath)
 	if err != nil {
-		return "", err
-	}
-	defer out.Close()
-
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, out)
-	if err != nil {
-		return "", err
+		return fmt.Errorf("read staging directory: %w", err)
 	}
 
-	return buf.String(), nil
+	for _, entry := range entries {
+		if entry.IsDir() {
+			// Remove timestamp directories (format: YYYYMMDD-HHMMSS)
+			dirPath := filepath.Join(instancePath, entry.Name())
+			if err := os.RemoveAll(dirPath); err != nil {
+				return fmt.Errorf("remove staging directory %s: %w", dirPath, err)
+			}
+		}
+	}
+
+	return nil
 }
