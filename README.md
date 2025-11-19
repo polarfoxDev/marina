@@ -2,7 +2,7 @@
 
 **Docker-native backup orchestration using Restic**
 
-Marina is a backup orchestrator that backs up Docker volumes and databases based on configuration in config.yml. It uses [Restic](https://restic.net/) as the backup backend and supports multiple backup destinations (S3, local, and any Restic-compatible storage). In addition, Marina supports custom Docker image backends for maximum flexibility.
+Marina is a config-driven backup orchestrator that backs up Docker volumes and databases. It uses [Restic](https://restic.net/) as the backup backend and supports multiple backup destinations (S3, local, and any Restic-compatible storage). In addition, Marina supports custom Docker image backends for maximum flexibility.
 
 ## Project Status
 
@@ -16,13 +16,13 @@ Planned features:
 
 ## Features
 
-- **Config-driven targets**: Define backup targets in config.yml for easier management
+- **Config-driven**: Define all backup targets in config.yml with YAML syntax
 - **Multiple backup destinations**: S3, local filesystem, or any Restic repository
 - **Custom backup backends**: Use custom Docker images for alternative backup destinations
-- **Database dumps**: Native support for PostgreSQL, MySQL, MariaDB, MongoDB, and Redis
+- **Database dumps**: Native support for PostgreSQL, MySQL, MariaDB, MongoDB, and Redis with auto-detection
 - **Volume backups**: Back up Docker volumes with optional container stop/start
-- **Dynamic discovery**: Automatically verifies configured containers and volumes exist
-- **Flexible scheduling**: Per-destination cron schedules
+- **Runtime validation**: Targets validated at backup time—missing containers/volumes are skipped with warnings
+- **Flexible scheduling**: Per-instance cron schedules
 - **Retention policies**: Configurable daily/weekly/monthly retention per instance
 - **Pre/post hooks**: Execute commands before and after backups
 - **Web Interface**: React-based dashboard for monitoring backup status and logs
@@ -45,17 +45,14 @@ instances:
     env:
       RESTIC_PASSWORD: your-restic-password
     targets:
-      # Shorthand syntax (recommended)
-      - "volume:app-data"
-      - "db:postgres"      # dbKind auto-detected from container image
-      
-      # Full object syntax (use when you need custom options)
-      # - volume: app-data
-      #   paths: ["/data"]
-      #   stopAttached: true
-      # - db: postgres
-      #   dbKind: postgres   # Override auto-detection
-      #   preHook: "psql -U myapp -c 'CHECKPOINT;'"
+      - volume: app-data
+        paths: ["/"]        # Paths relative to volume root
+        stopAttached: false  # Optional: stop containers during backup
+      - db: postgres          # Container name
+        # dbKind auto-detected from container image
+        # dbKind: postgres   # Override auto-detection if needed
+        # dumpArgs: ["--clean", "--if-exists"]  # Optional dump arguments
+        # preHook: "psql -U myapp -c 'CHECKPOINT;'"  # Optional pre-backup command
 
 # Optional global defaults
 stopAttached: true  # Stop containers when backing up volumes
@@ -126,7 +123,7 @@ volumes:
 docker-compose up -d
 ```
 
-Marina will automatically verify and schedule backups for the configured targets.
+Marina will schedule backups for all configured targets. Missing containers or volumes are skipped with warnings at backup time.
 
 ### 4. Monitor backups
 
@@ -165,45 +162,37 @@ Marina uses a single configuration file (`config.yml`) to define backup instance
 
 ### Target Configuration
 
-Each backup instance can have multiple targets configured. Targets support two syntaxes:
+Each backup instance can have multiple targets configured using YAML object syntax:
 
-**Shorthand syntax** (recommended for simple targets):
-```yaml
-targets:
-  - "volume:app-data"
-  - "db:postgres"
-```
-
-**Full object syntax** (for advanced options):
 ```yaml
 targets:
   - volume: app-data
-    paths: ["/data"]
-    stopAttached: true
-  - db: postgres
-    dbKind: postgres
-    dumpArgs: ["--clean"]
+    paths: ["/"]           # Optional: paths relative to volume root (default: ["/"])
+    stopAttached: false    # Optional: stop containers during backup (default: false)
+  - db: postgres            # Container name
+    dbKind: postgres        # Optional: auto-detected if not specified
+    dumpArgs: ["--clean"]   # Optional: additional dump arguments
 ```
 
 #### Volume Targets
 
-| Field          | Required | Description                                       | Example                  |
-| -------------- | -------- | ------------------------------------------------- | ------------------------ |
-| `volume`       | Yes      | Volume name (as shown in `docker volume ls`)      | `"app-data"`             |
-| `paths`        | No       | Paths to backup (relative to volume root)         | `["/", "/data"]`         |
-| `stopAttached` | No       | Stop attached containers during backup            | `true`                   |
-| `preHook`      | No       | Command to run before backup (in first container) | `"echo Starting"`        |
-| `postHook`     | No       | Command to run after backup (in first container)  | `"echo Done"`            |
+| Field          | Required | Description                                       | Example           |
+| -------------- | -------- | ------------------------------------------------- | ----------------- |
+| `volume`       | Yes      | Volume name (as shown in `docker volume ls`)      | `"app-data"`      |
+| `paths`        | No       | Paths to backup (relative to volume root)         | `["/", "/data"]`  |
+| `stopAttached` | No       | Stop attached containers during backup            | `true`            |
+| `preHook`      | No       | Command to run before backup (in first container) | `"echo Starting"` |
+| `postHook`     | No       | Command to run after backup (in first container)  | `"echo Done"`     |
 
 #### Database Targets
 
-| Field      | Required | Description                                          | Example                                                    |
-| ---------- | -------- | ---------------------------------------------------- | ---------------------------------------------------------- |
-| `db`       | Yes      | Container name (as shown in `docker ps`)             | `"postgres"`, `"my-mysql"`                                 |
-| `dbKind`   | No*      | Database type (auto-detected if not provided)        | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
-| `dumpArgs` | No       | Additional arguments for dump command                | `["--clean", "--if-exists"]` (PostgreSQL)                  |
-| `preHook`  | No       | Command to run before backup (inside DB container)   | `"psql -U myapp -c 'CHECKPOINT;'"`                         |
-| `postHook` | No       | Command to run after backup (inside DB container)    | `"echo Done"`                                              |
+| Field      | Required | Description                                        | Example                                                    |
+| ---------- | -------- | -------------------------------------------------- | ---------------------------------------------------------- |
+| `db`       | Yes      | Container name (as shown in `docker ps`)           | `"postgres"`, `"my-mysql"`                                 |
+| `dbKind`   | No*      | Database type (auto-detected if not provided)      | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
+| `dumpArgs` | No       | Additional arguments for dump command              | `["--clean", "--if-exists"]` (PostgreSQL)                  |
+| `preHook`  | No       | Command to run before backup (inside DB container) | `"psql -U myapp -c 'CHECKPOINT;'"`                         |
+| `postHook` | No       | Command to run after backup (inside DB container)  | `"echo Done"`                                              |
 
 **\*dbKind auto-detection**: Marina automatically detects the database type from the container image name (e.g., `postgres:16` → `postgres`). You can override this by explicitly specifying `dbKind`. If detection fails and no `dbKind` is provided, the target will be skipped.
 
@@ -215,10 +204,12 @@ targets:
 
 Marina uses a single configuration file (`config.yml`) that defines:
 
-1. **Backup instances**: Repositories, credentials, schedules, and retention policies
-2. **Backup targets**: Volumes and databases to back up for each instance
+1. **Backup instances**: Repositories, credentials, schedules, retention policies, and targets
+2. **Backup targets**: Volumes and databases to back up, defined within each instance
 3. **Global defaults**: Optional default values for all instances
 4. **Mesh networking**: Optional multi-node federation for unified monitoring
+
+All backup targets are defined in the config file. At backup time, Marina validates that the referenced volumes and containers exist. Missing targets are skipped with warnings in the logs.
 
 ### Important: Staging Directory Mount
 
@@ -306,7 +297,6 @@ See the [custom backup image example](examples/custom-backup-image/) for a compl
 See [config.example.yml](config.example.yml) for a complete configuration example including mesh mode setup and [docker-compose.example.yml](docker-compose.example.yml) for a full deployment example.
 
 - [Custom Backends](docs/custom-backends.md) - Build your own backup backend using Docker images
-- [Dynamic Discovery](docs/dynamic-discovery.md) - How Marina detects changes automatically
 - [Architecture](docs/architecture-diagram.md) - System design and data flow
 - [Web Interface](docs/web-interface.md) - React dashboard and mesh mode
 - [Logging](docs/logging.md) - Job logging and status tracking
