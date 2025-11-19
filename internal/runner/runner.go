@@ -483,14 +483,19 @@ func (r *Runner) stageVolume(ctx context.Context, instanceID, timestamp string, 
 		// Clean up staging directory
 		if len(stagedPaths) > 0 {
 			firstPath := stagedPaths[0]
+			// Find the volume-specific directory to remove (e.g., /backup/instance/timestamp/volume/volumename)
+			// We want to remove up to the volume name level, not the entire instance directory
 			dir := firstPath
 			for {
 				parent := filepath.Dir(dir)
-				if parent == "/backup" {
-					_ = os.RemoveAll(dir)
+				if parent == "/backup" || parent == dir || parent == "/" {
+					// Reached too high or hit the root - something is wrong, don't delete
 					break
 				}
-				if parent == dir || parent == "/" {
+				// Check if parent path contains "/volume/" - if so, dir is the volume directory
+				if strings.Contains(parent, "/volume/") {
+					// Remove this directory (the volume-specific subdirectory)
+					_ = os.RemoveAll(dir)
 					break
 				}
 				dir = parent
@@ -696,7 +701,7 @@ func validateFileSize(paths []string, jobLogger *logging.JobLogger) error {
 				}
 				return nil
 			})
-			// filepath.SkipAll is the expected success path for early exit
+			// filepath.SkipAll is returned when we found a non-empty file (success case)
 			if err != nil && !errors.Is(err, filepath.SkipAll) {
 				return fmt.Errorf("error walking directory %s: %w", path, err)
 			}
