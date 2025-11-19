@@ -5,7 +5,7 @@ instances:
     env:
       RESTIC_PASSWORD: testpass
     targets:
-      - volume: testdata2
+      - volume: mesh_testdata2  # volume prefixed by docker-compose
         stopAttached: true
 
 # Global defaults

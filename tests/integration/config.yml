@@ -13,8 +13,8 @@ instances:
       - "db:mongo-it"        # mongo container
       - db: pg-empty-it      # postgres-empty container
         preHook: "echo '#!/bin/sh' > /usr/local/bin/pg_dumpall && echo 'exit 0' >> /usr/local/bin/pg_dumpall && chmod +x /usr/local/bin/pg_dumpall"
-      - "volume:testdata"    # volume-writer data
-      - "volume:testdata-empty"  # volume-writer-empty data
+      - "volume:integration_testdata"    # volume-writer data (prefixed by docker-compose)
+      - "volume:integration_testdata-empty"  # volume-writer-empty data (prefixed by docker-compose)
 
 # Global defaults
 retention: "7d:4w:6m"
