@@ -117,7 +117,7 @@ func (r *Runner) stageDatabase(ctx context.Context, instanceID, timestamp string
 	// Create cleanup function
 	cleanup := func() {
 		// Clean up container dump directory
-		_, _ = docker.ExecInContainer(ctx, r.Docker, target.ContainerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", containerDumpDir)})
+		_, _ = docker.ExecInContainer(ctx, r.Docker, containerID, []string{"/bin/sh", "-lc", fmt.Sprintf("rm -rf %q", containerDumpDir)})
 		// Clean up host staging directory
 		_ = os.RemoveAll(hostStagingDir)
 	}
