@@ -4,8 +4,11 @@ instances:
     schedule: "* * * * *" # Every minute for fast integration testing
     env:
       RESTIC_PASSWORD: testpass
+    targets:
+      - volume: mesh_testdata2  # volume prefixed by docker-compose
+        stopAttached: true
 
-# Global defaults (can be overridden by labels)
+# Global defaults
 retention: "7d:4w:6m"
 stopAttached: true
 resticTimeout: "30s"

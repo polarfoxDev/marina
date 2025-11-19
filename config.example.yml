@@ -1,7 +1,7 @@
 instances:
   - id: hetzner-s3
     repository: s3:https://fsn1.your-objectstorage.com/restic12t681
-    schedule: "0 2 * * *" # Daily at 2 AM - backs up all volumes/DBs assigned to this instance
+    schedule: "0 2 * * *" # Daily at 2 AM - backs up all targets assigned to this instance
     retention: "30d:12w:24m" # Optional: instance-specific retention (overrides global)
     resticTimeout: "10m" # Optional: instance-specific timeout (overrides global, default 5m)
     env:
@@ -9,12 +9,34 @@ instances:
       AWS_SECRET_ACCESS_KEY: your-secret-key
       AWS_DEFAULT_REGION: fsn1
       RESTIC_PASSWORD: your-restic-password
+    targets:
+      # Simple syntax (recommended for simple targets)
+      - volume: app-uploads
+      - volume: app-config
+      - db: app-postgres # dbKind auto-detected from image (postgres, mysql, mariadb, mongo, redis)
+      - db: app-mysql
+      - db: app-mariadb
+
+      # Full object syntax (use when you need custom settings)
+      # - volume: app-uploads
+      #   paths: ["/data", "/config"]  # Specific paths instead of root "/"
+      #   stopAttached: true           # Stop containers during backup
+      #   preHook: "echo Starting"     # Command before backup
+      #   postHook: "echo Done"        # Command after backup
+      # - db: app-postgres
+      #   dbKind: postgres              # Override auto-detection
+      #   dumpArgs: ["--clean", "--if-exists"]  # Custom dump arguments
+      #   preHook: "psql -U myapp -c 'CHECKPOINT;'"
+
   - id: local-backup
     repository: /mnt/backup/restic
     schedule: "0 3 * * *" # Daily at 3 AM
     # No retention specified - will use global default below
     env:
       RESTIC_PASSWORD: your-restic-password
+    targets:
+      - volume: important-data
+
   - id: env-example
     repository: s3:https://nyc3.digitaloceanspaces.com/my-backup-bucket
     schedule: "30 2 * * *" # Daily at 2:30 AM
@@ -23,6 +45,10 @@ instances:
       AWS_SECRET_ACCESS_KEY: ${DO_SPACES_SECRET}
       AWS_DEFAULT_REGION: nyc3
       RESTIC_PASSWORD: ${RESTIC_PASS}
+    targets:
+      - volume: ${BACKUP_VOLUME} # Environment variable expansion also works in targets
+        paths: ["/data", "/config"]
+
   # Example: Custom Docker image backend (alternative to Restic)
   # - id: custom-backup
   #   customImage: marina/example-backup:latest # Custom Docker image
@@ -31,14 +57,16 @@ instances:
   #   env:
   #     BACKUP_ENDPOINT: https://backup.example.com
   #     BACKUP_TOKEN: ${BACKUP_TOKEN}
+  #   targets:
+  #     - volume: custom-data
 
-# Global defaults (can be overridden by instance config or Docker labels)
+# Global defaults (can be overridden by instance config or target config)
 # If not specified here, Marina uses hardcoded defaults:
 #   - retention: "7d:4w:6m" (7 daily, 4 weekly, 6 monthly)
 #   - stopAttached: false
 #   - resticTimeout: "60m" (60 minutes)
 retention: "14d:8w:12m" # Format: daily:weekly:monthly - applies to all instances unless overridden
-stopAttached: true # Stop containers when backing up volumes
+stopAttached: true # Stop containers when backing up volumes (can be overridden per target)
 resticTimeout: "60m" # Global timeout for backup operations (format: "5m", "30s", "1h") - can be overridden per instance
 
 # Mesh configuration (optional) - for connecting multiple Marina instances
@@ -60,6 +88,3 @@ mesh:
     # Or use environment variables:
     # - ${PEER_NODE_1}
     # - ${PEER_NODE_2}
-# Dynamic discovery settings (can also be set via environment variables):
-# DISCOVERY_INTERVAL: How often to poll for container/volume changes (default: 30s)
-# ENABLE_EVENTS: Enable Docker event listener for real-time updates (default: true)

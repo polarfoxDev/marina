@@ -14,6 +14,10 @@ instances:
     env:
       BACKUP_TOKEN: secret-token
       BACKUP_ENDPOINT: https://backup.example.com
+    targets:
+      - volume: my-data
+      - db: postgres
+        dbKind: postgres
 ```
 
 1. **Create your Docker image** with a `/backup.sh` script:
@@ -25,21 +29,13 @@ RUN chmod +x /backup.sh
 ENTRYPOINT ["/backup.sh"]
 ```
 
-1. **Label your volumes/containers** to use this instance:
-
-```yaml
-volumes:
-  my-data:
-    labels:
-      dev.polarfox.marina.enabled: "true"
-      dev.polarfox.marina.instanceID: "my-custom-backup"
-```
+1. **Ensure your containers/volumes exist** with names matching config.yml
 
 ## How It Works
 
 ### Backup Flow
 
-1. Marina discovers targets (volumes/databases) via Docker labels
+1. Marina verifies configured targets (volumes/databases) exist
 1. Marina stages backup data in `/backup/{instanceID}` directory on the host
 1. Marina creates a container using your custom image
 1. Only `/backup/{instanceID}` is mounted at `/backup` in the container (scoped to this instance)
@@ -202,88 +198,6 @@ docker run --rm \
   myorg/custom-backup:latest
 ```
 
-### Common Issues
-
-**Container exits immediately:**
-
-- Check that `/backup.sh` has execute permissions
-- Verify the script has a proper shebang (`#!/bin/sh`)
-- Check for syntax errors in your script
-
-**"No backup data found":**
-
-- Verify volumes/databases have correct labels
-- Check that `instanceID` matches your config
-- Ensure Marina can access Docker socket
-
-**Permissions errors:**
-
-- Custom containers run as root by default
-- Staged files are owned by root
-- Ensure your backup script handles permissions correctly
-
-## Advanced Topics
-
-### Custom Entrypoint
-
-If you don't want to use `/backup.sh`, specify a custom entrypoint:
-
-```dockerfile
-FROM mybase:latest
-COPY my-backup-tool /usr/local/bin/
-ENTRYPOINT ["/usr/local/bin/my-backup-tool"]
-```
-
-### Multi-Stage Processing
-
-Your script can perform multiple operations:
-
-```bash
-#!/bin/sh
-set -e
-
-# 1. Validate data
-echo "Validating backup data..."
-find /backup -type f -exec md5sum {} \; > checksums.txt
-
-# 2. Compress
-echo "Compressing..."
-tar -czf backup.tar.gz /backup checksums.txt
-
-# 3. Encrypt
-echo "Encrypting..."
-gpg --encrypt --recipient "$GPG_KEY_ID" backup.tar.gz
-
-# 4. Upload
-echo "Uploading..."
-curl -F "file=@backup.tar.gz.gpg" "$BACKUP_URL"
-
-# 5. Verify
-echo "Verifying..."
-curl "$BACKUP_URL/verify?file=backup.tar.gz.gpg"
-
-echo "Backup completed with verification"
-```
-
-### Health Checks
-
-Implement health checks in your backup script:
-
-```bash
-#!/bin/sh
-set -e
-
-# Check prerequisites
-command -v aws >/dev/null 2>&1 || { echo "aws-cli not installed"; exit 1; }
-[ -n "$AWS_ACCESS_KEY_ID" ] || { echo "AWS credentials not set"; exit 1; }
-
-# Check backup destination
-aws s3 ls "s3://my-bucket/" >/dev/null || { echo "Cannot access S3 bucket"; exit 1; }
-
-# Proceed with backup
-# ...
-```
-
 ## Example Images
 
 Marina includes an example custom backup image in `examples/custom-backup-image/` that demonstrates:
@@ -302,46 +216,11 @@ docker build -t marina/example-backup:latest .
 docker run --rm -v /tmp/test:/backup marina/example-backup:latest
 ```
 
-## Migration from Restic
-
-If you're migrating from Restic to a custom image:
-
-1. Keep your existing Restic instance for historical backups
-2. Add a new custom image instance
-3. Gradually migrate volumes to the new instance
-4. Test thoroughly before removing Restic instance
-
-Example parallel configuration:
-
-```yaml
-instances:
-  - id: restic-legacy
-    repository: s3:https://storage.example.com/restic
-    schedule: "0 2 * * *"
-    env:
-      RESTIC_PASSWORD: ${RESTIC_PASS}
-  
-  - id: custom-new
-    customImage: myorg/backup:latest
-    schedule: "0 3 * * *"
-    env:
-      BACKUP_TOKEN: ${TOKEN}
-```
-
 ## Best Practices
 
 1. **Idempotency**: Make your backup script idempotent - safe to run multiple times
-2. **Logging**: Include detailed logs with timestamps for debugging
-3. **Error Handling**: Exit with non-zero code on any error
-4. **Validation**: Validate backup data before uploading
-5. **Cleanup**: Don't leave temporary files in `/backup`
-6. **Versioning**: Tag your images with versions, not just `latest`
-7. **Testing**: Test your image thoroughly before production use
-8. **Monitoring**: Monitor backup success/failure rates in Marina dashboard
-
-## See Also
-
-- [Configuration Reference](../README.md#configuration)
-- [Docker Labels Reference](../docs/labels.md)
-- [Example Custom Image](../examples/custom-backup-image/)
-- [Marina API Documentation](../docs/api.md)
+1. **Logging**: Include detailed logs with timestamps for debugging
+1. **Error Handling**: Exit with non-zero code on any error
+1. **Validation**: Validate backup data before uploading
+1. **Versioning**: Tag your images with versions, not just `latest`
+1. **Testing**: Test your image thoroughly before production use

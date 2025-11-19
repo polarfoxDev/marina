@@ -52,6 +52,10 @@ instances:
       # Add any custom environment variables your backup script needs
       BACKUP_ENDPOINT: https://backup.example.com
       BACKUP_TOKEN: your-token-here
+    targets:
+      - volume: my-volume
+      - db: my-database
+        dbKind: postgres
 ```
 
 ## Creating Your Own Custom Backup Image

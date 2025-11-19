@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: Completely removed Docker label-based discovery system
+  - All backup targets (volumes and databases) must now be defined in `config.yml` under the `targets` field of each instance
+  - Removed support for `dev.polarfox.marina.*` Docker labels
+  - Target validation now happens at backup time, not at startup
+  - Volumes and containers are looked up by name during backup execution
+  - Fails with clear error messages if configured volume/container doesn't exist
+- **BREAKING**: Removed shorthand syntax for target configuration (e.g., `"volume:name"` and `"db:name"`)
+  - Use proper YAML syntax instead: `volume: name` or `db: name`
+  - This makes configuration clearer and removes unnecessary string parsing
+- Simplified architecture: no more periodic rediscovery or Docker event listening
+  - Removed `internal/docker/discovery.go` and `internal/docker/events.go`
+  - No more `DISCOVERY_INTERVAL` or `ENABLE_EVENTS` environment variables
+  - Configuration changes require restart (edit config.yml and restart Marina)
+
+### Removed
+
+- **BREAKING**: Removed `internal/docker/discovery.go` - discovery system no longer needed
+- **BREAKING**: Removed `internal/docker/events.go` - Docker event listener no longer needed
+- **BREAKING**: Removed dynamic discovery and automatic rescheduling features
+
 ## [0.5.0] - 2025-11-19
 
 ### Added
@@ -14,10 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - File size validation: Backups now fail if ALL files are empty (0 bytes), preventing silent failures from database dumps or volume copies. Individual empty files are allowed (normal for lock files, .gitkeep, etc.) as long as at least one file has content
 
 ### Changed
-
 - **BREAKING**: Removed `dev.polarfox.marina.tags` label - Marina now auto-generates a single tag for each backup
   - Volume backups: `volume:<name>`
   - Database backups: `db:<kind>`
+- `dbKind` is now optional for database targets (auto-detected from container image if not specified)
 - Web UI: Log level filter now defaults to INFO instead of "All Levels"
 - Web UI: Log level filtering now works hierarchically (DEBUG shows all logs, INFO shows INFO+WARN+ERROR, WARN shows WARN+ERROR, ERROR shows only ERROR)
 
