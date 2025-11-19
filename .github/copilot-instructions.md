@@ -97,7 +97,7 @@ mesh:
    - Cleanup function: removes staging directory and restarts stopped containers (executed via defer)
    - Post-hook executes in first attached container after backup completes
 
-2. **DB backups** (`internal/runner/database.go`):
+1. **DB backups** (`internal/runner/database.go`):
 
    - Validates container exists via Docker API at backup time (skipped with warning if missing)
    - Auto-detects database type from container image if `dbKind` not specified
@@ -108,7 +108,7 @@ mesh:
    - Cleanup function: removes `/tmp/marina-*` from container and staging directory on host
    - Post-hook executes inside DB container after backup completes
 
-3. **Backend execution**:
+1. **Backend execution**:
 
    - All staged paths from all targets collected into single list
    - Tags generated for each target: `volume:name` or `db:name`
@@ -116,7 +116,7 @@ mesh:
    - Custom image backend: Container created with `/backup/{instanceID}` mounted, runs `/backup.sh` script
    - Failed targets logged but don't stop other targets from being backed up
 
-4. **Retention**:
+1. **Retention**:
    - Applied _after every backup_ via `DeleteOldSnapshots()`
    - Parsed from config like `"7d:14w:6m"` → `--keep-daily 7 --keep-weekly 14 --keep-monthly 6`
    - Defaults: 7 daily, 4 weekly, 6 monthly (see `helpers/retention.go`)
