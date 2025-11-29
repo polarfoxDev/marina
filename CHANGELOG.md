@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Custom backend log streaming: logs now stream in real-time during backup execution instead of only appearing after completion
+
 ### Fixed
 
 - Custom backend staging directory cleanup: timestamp directories are now properly cleaned up after each backup run, preventing unlimited disk space growth
-- Custom backend log streaming: logs now stream in real-time during backup execution instead of only appearing after completion
 
 ## [0.7.1] - 2025-11-19
 
