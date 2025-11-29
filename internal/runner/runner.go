@@ -406,8 +406,6 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		return fmt.Errorf("backup failed: %w", err)
 	}
 
-	instanceLogger.Info("backup completed successfully")
-
 	// Apply retention policy
 	_, _ = dest.DeleteOldSnapshots(ctx, job.Retention.KeepDaily, job.Retention.KeepWeekly, job.Retention.KeepMonthly)
 
