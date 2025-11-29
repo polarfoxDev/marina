@@ -6,13 +6,14 @@ Marina is a config-driven backup orchestrator that backs up Docker volumes and d
 
 ## Project Status
 
-> [!CAUTION]
-> Marina is currently in **early beta**. The core functionality is working, but the API and configuration format may change at any time.
-> There are no migration paths yet, you might need to reconfigure and delete existing backups and the marina database when upgrading to a new version.
+> [!WARNING]
+> Marina is still **beta** software. While the core functionality is stable and production-ready, breaking changes may occur between releases. Migration paths are not guaranteed until version 1.0. Always review the [CHANGELOG](CHANGELOG.md) before upgrading.
 
 Planned features:
 
 - Recovery operations from Restic snapshots
+
+**Target 1.0 release**: Late December 2025 or January 2026
 
 ## Features
 
