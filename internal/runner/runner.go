@@ -280,8 +280,8 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	// Use instance start time as timestamp for all staged paths
 	timestamp := startTime.Format("20060102-150405")
 
-	// Create staging directory path for this backup run
-	instanceStagingDir := filepath.Join(r.HostBackupPath, string(job.InstanceID), timestamp)
+	// Create staging directory path for this backup run (inside container: /backup/...)
+	instanceStagingDir := filepath.Join("/backup", string(job.InstanceID), timestamp)
 
 	var allPaths []string
 	var allTags []string
@@ -405,6 +405,8 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		}
 		return fmt.Errorf("backup failed: %w", err)
 	}
+
+	instanceLogger.Info("backup completed successfully")
 
 	// Apply retention policy
 	_, _ = dest.DeleteOldSnapshots(ctx, job.Retention.KeepDaily, job.Retention.KeepWeekly, job.Retention.KeepMonthly)
