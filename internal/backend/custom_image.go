@@ -5,13 +5,69 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/polarfoxDev/marina/internal/logging"
 )
+
+// lineWriter writes log lines to the logger in real-time
+type lineWriter struct {
+	logger  *logging.JobLogger
+	allLogs *[]string
+	mu      sync.Mutex
+	buffer  []byte
+}
+
+func (w *lineWriter) Write(p []byte) (n int, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.buffer = append(w.buffer, p...)
+
+	// Process complete lines
+	for {
+		idx := bytes.IndexByte(w.buffer, '\n')
+		if idx == -1 {
+			break
+		}
+
+		line := string(w.buffer[:idx])
+		line = strings.TrimRight(line, "\r")
+
+		*w.allLogs = append(*w.allLogs, line)
+		if w.logger != nil {
+			w.logger.Debug("%s", line)
+		}
+
+		w.buffer = w.buffer[idx+1:]
+	}
+
+	return len(p), nil
+}
+
+func (w *lineWriter) flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if len(w.buffer) > 0 {
+		line := string(w.buffer)
+		line = strings.TrimRight(line, "\r\n")
+		if line != "" {
+			*w.allLogs = append(*w.allLogs, line)
+			if w.logger != nil {
+				w.logger.Debug("%s", line)
+			}
+		}
+		w.buffer = nil
+	}
+}
 
 // CustomImageBackend implements the Backend interface using a custom Docker image
 type CustomImageBackend struct {
@@ -21,6 +77,7 @@ type CustomImageBackend struct {
 	Hostname       string
 	HostBackupPath string
 	dockerClient   *client.Client
+	logger         *logging.JobLogger
 }
 
 // NewCustomImageBackend creates a new custom image backend
@@ -38,6 +95,10 @@ func NewCustomImageBackend(id, customImage string, env map[string]string, hostna
 		HostBackupPath: hostBackupPath,
 		dockerClient:   cli,
 	}, nil
+}
+
+func (b *CustomImageBackend) SetLogger(logger *logging.JobLogger) {
+	b.logger = logger
 }
 
 func (b *CustomImageBackend) GetType() BackendType {
@@ -117,43 +178,87 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 		_ = b.dockerClient.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout})
 	}()
 
-	// Start the container
+	// Start the container first
 	if err := b.dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 		return "", fmt.Errorf("start backup container: %w", err)
 	}
 
+	// Create shared slice for all logs
+	var allLogs []string
+
+	// Create line-by-line streaming writers
+	stdoutWriter := &lineWriter{
+		logger:  b.logger,
+		allLogs: &allLogs,
+	}
+	stderrWriter := &lineWriter{
+		logger:  b.logger,
+		allLogs: &allLogs,
+	}
+
+	// Attach to logs after container is started
+	logStream, err := b.dockerClient.ContainerLogs(ctx, containerID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Timestamps: false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("attach to container logs: %w", err)
+	}
+
+	// Demultiplex Docker logs in a goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		defer logStream.Close()
+		// StdCopy demultiplexes the Docker log stream
+		_, err := stdcopy.StdCopy(stdoutWriter, stderrWriter, logStream)
+		if err != nil && err != io.EOF {
+			errChan <- fmt.Errorf("demultiplex logs: %w", err)
+		}
+		close(errChan)
+	}()
+
 	// Wait for container to complete
-	statusCh, errCh := b.dockerClient.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	statusCh, waitErrCh := b.dockerClient.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	var exitCode int64
 	select {
-	case err := <-errCh:
+	case err := <-waitErrCh:
 		if err != nil {
 			return "", fmt.Errorf("wait for container: %w", err)
 		}
 	case status := <-statusCh:
-		if status.StatusCode != 0 {
-			// Get logs to show what went wrong
-			logs, _ := b.getContainerLogs(ctx, containerID)
-			_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
-			return logs, fmt.Errorf("backup container exited with code %d", status.StatusCode)
-		}
+		exitCode = status.StatusCode
 	}
 
-	// Get container logs
-	logs, err := b.getContainerLogs(ctx, containerID)
-	if err != nil {
-		return "", fmt.Errorf("get container logs: %w", err)
+	// Wait for log streaming to complete and flush any remaining buffered data
+	if err := <-errChan; err != nil {
+		_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+		return "", err
 	}
+
+	// Flush any remaining buffered lines
+	stdoutWriter.flush()
+	stderrWriter.flush()
 
 	_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
 
-	return logs, nil
+	// Check exit code - only return logs on error
+	if exitCode != 0 {
+		logsStr := ""
+		for _, line := range allLogs {
+			logsStr += line + "\n"
+		}
+		return logsStr, fmt.Errorf("backup container exited with code %d", exitCode)
+	}
+
+	// Success - logs were already streamed in real-time, no need to return them
+	return "", nil
 }
 
 // DeleteOldSnapshots is a no-op for custom images - they handle their own retention
 // The retention policy is informational only
 func (b *CustomImageBackend) DeleteOldSnapshots(ctx context.Context, daily, weekly, monthly int) (string, error) {
-	// Custom images are expected to handle their own retention policy
-	// We don't enforce it from Marina's side
 	return "", nil
 }
 
@@ -163,24 +268,4 @@ func (b *CustomImageBackend) Close() error {
 		return b.dockerClient.Close()
 	}
 	return nil
-}
-
-// getContainerLogs retrieves stdout and stderr from a container
-func (b *CustomImageBackend) getContainerLogs(ctx context.Context, containerID string) (string, error) {
-	out, err := b.dockerClient.ContainerLogs(ctx, containerID, container.LogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-	})
-	if err != nil {
-		return "", err
-	}
-	defer out.Close()
-
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, out)
-	if err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
 }

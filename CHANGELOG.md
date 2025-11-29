@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2025-11-29
+
+### Changed
+
+- Custom backend log streaming: logs now stream in real-time during backup execution instead of only appearing after completion
+
+### Fixed
+
+- Custom backend staging directory cleanup: timestamp directories are now properly cleaned up after each backup run, preventing unlimited disk space growth
+
 ## [0.7.1] - 2025-11-19
 
 ### Changed
@@ -204,7 +214,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/polarfoxDev/marina/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/polarfoxDev/marina/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/polarfoxDev/marina/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/polarfoxDev/marina/compare/v0.5.0...v0.6.0

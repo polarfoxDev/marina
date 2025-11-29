@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -278,14 +280,24 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	// Use instance start time as timestamp for all staged paths
 	timestamp := startTime.Format("20060102-150405")
 
+	// Create staging directory path for this backup run (inside container: /backup/...)
+	instanceStagingDir := filepath.Join("/backup", string(job.InstanceID), timestamp)
+
 	var allPaths []string
 	var allTags []string
 
 	// Track cleanup functions to defer
 	var cleanups []cleanupFunc
 	defer func() {
+		// Run target-specific cleanups first (container restarts, temp file removal)
 		for _, cleanup := range cleanups {
 			cleanup()
+		}
+		// Then remove the entire instance timestamp staging directory
+		if err := os.RemoveAll(instanceStagingDir); err != nil {
+			instanceLogger.Warn("failed to remove staging directory %s: %v", instanceStagingDir, err)
+		} else {
+			instanceLogger.Debug("removed staging directory: %s", instanceStagingDir)
 		}
 	}()
 
@@ -371,9 +383,15 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	// Perform single backup with all collected paths
 	instanceLogger.Info("backing up %d paths to instance %s using backend %s: %s", len(allPaths), job.InstanceID, dest.GetType(), allPaths)
 	instanceLogger.Debug("backend timeout: %s", dest.GetResticTimeout())
+
 	if dest.GetType() == backend.BackendTypeCustomImage {
-		instanceLogger.Debug("using custom image %s, log output will appear as soon as execution finished", dest.GetImage())
+		instanceLogger.Info("using custom image %s", dest.GetImage())
+		// Type assert to CustomImageBackend to set the logger
+		if customBackend, ok := dest.(*backend.CustomImageBackend); ok {
+			customBackend.SetLogger(instanceLogger)
+		}
 	}
+
 	logs, err := dest.Backup(ctx, allPaths, allTags)
 	instanceLogger.Debug("%s", logs)
 	if err != nil {
