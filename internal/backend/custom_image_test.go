@@ -2,8 +2,6 @@ package backend
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -55,89 +53,62 @@ func TestCustomImageBackend_DeleteOldSnapshots(t *testing.T) {
 	}
 }
 
-func TestCustomImageBackend_CleanupStagingDir(t *testing.T) {
-	// Create a temporary directory for testing
-	tempDir := t.TempDir()
-	instancePath := filepath.Join(tempDir, "test-instance")
-	if err := os.MkdirAll(instancePath, 0o755); err != nil {
-		t.Fatalf("failed to create instance directory: %v", err)
+func TestLineWriter(t *testing.T) {
+	var allLogs []string
+	writer := &lineWriter{
+		logger:  nil, // No logger for this test
+		allLogs: &allLogs,
 	}
 
-	backend, err := NewCustomImageBackend("test-id", "alpine:latest", nil, "test-host", tempDir)
+	// Test writing complete lines
+	_, err := writer.Write([]byte("line 1\n"))
 	if err != nil {
-		t.Fatalf("NewCustomImageBackend failed: %v", err)
-	}
-	defer backend.Close()
-
-	// Create some timestamp directories (simulating staging directories)
-	timestamps := []string{
-		"20240101-120000",
-		"20240102-120000",
-		"20240103-120000",
+		t.Fatalf("Write failed: %v", err)
 	}
 
-	for _, ts := range timestamps {
-		tsDir := filepath.Join(instancePath, ts)
-		if err := os.MkdirAll(filepath.Join(tsDir, "volume", "test"), 0o755); err != nil {
-			t.Fatalf("failed to create timestamp directory: %v", err)
-		}
-		// Create a dummy file
-		dummyFile := filepath.Join(tsDir, "volume", "test", "data.txt")
-		if err := os.WriteFile(dummyFile, []byte("test data"), 0o644); err != nil {
-			t.Fatalf("failed to create dummy file: %v", err)
-		}
+	if len(allLogs) != 1 || allLogs[0] != "line 1" {
+		t.Errorf("expected ['line 1'], got %v", allLogs)
 	}
 
-	// Verify directories exist
-	for _, ts := range timestamps {
-		tsDir := filepath.Join(instancePath, ts)
-		if _, err := os.Stat(tsDir); os.IsNotExist(err) {
-			t.Fatalf("timestamp directory should exist before cleanup: %s", tsDir)
-		}
-	}
-
-	// Run cleanup
-	if err := backend.cleanupStagingDir(instancePath); err != nil {
-		t.Fatalf("cleanupStagingDir failed: %v", err)
-	}
-
-	// Verify directories are removed
-	for _, ts := range timestamps {
-		tsDir := filepath.Join(instancePath, ts)
-		if _, err := os.Stat(tsDir); !os.IsNotExist(err) {
-			t.Errorf("timestamp directory should be removed after cleanup: %s", tsDir)
-		}
-	}
-
-	// Verify instance directory still exists
-	if _, err := os.Stat(instancePath); os.IsNotExist(err) {
-		t.Errorf("instance directory should still exist after cleanup: %s", instancePath)
-	}
-}
-
-func TestCustomImageBackend_SetLogger(t *testing.T) {
-	backend, err := NewCustomImageBackend("test-id", "alpine:latest", nil, "test-host", "/tmp/backup")
+	// Test writing multiple lines at once
+	_, err = writer.Write([]byte("line 2\nline 3\n"))
 	if err != nil {
-		t.Fatalf("NewCustomImageBackend failed: %v", err)
+		t.Fatalf("Write failed: %v", err)
 	}
-	defer backend.Close()
 
-	// Test that logger can be set
-	mockLogger := &mockLogger{}
-	backend.SetLogger(mockLogger)
+	if len(allLogs) != 3 {
+		t.Errorf("expected 3 lines, got %d", len(allLogs))
+	}
 
-	if backend.logger == nil {
-		t.Error("logger should be set")
+	// Test partial line (should not be added yet)
+	_, err = writer.Write([]byte("partial"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	if len(allLogs) != 3 {
+		t.Errorf("partial line should not be added yet, expected 3 lines, got %d", len(allLogs))
+	}
+
+	// Complete the partial line
+	_, err = writer.Write([]byte(" line\n"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	if len(allLogs) != 4 || allLogs[3] != "partial line" {
+		t.Errorf("expected 4 lines with 'partial line' as last, got %v", allLogs)
+	}
+
+	// Test flush with remaining data
+	_, err = writer.Write([]byte("final"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	writer.flush()
+
+	if len(allLogs) != 5 || allLogs[4] != "final" {
+		t.Errorf("expected 5 lines with 'final' as last, got %v", allLogs)
 	}
 }
-
-// mockLogger is a simple logger implementation for testing
-type mockLogger struct {
-	messages []string
-}
-
-func (m *mockLogger) Debug(format string, args ...any) {
-	// Store messages for verification if needed
-	m.messages = append(m.messages, format)
-}
-

@@ -1,23 +1,72 @@
 package backend
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/polarfoxDev/marina/internal/logging"
 )
 
-// LogWriter is an interface for logging output during backup operations
-type LogWriter interface {
-	Debug(format string, args ...any)
+// lineWriter writes log lines to the logger in real-time
+type lineWriter struct {
+	logger  *logging.JobLogger
+	allLogs *[]string
+	mu      sync.Mutex
+	buffer  []byte
+}
+
+func (w *lineWriter) Write(p []byte) (n int, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.buffer = append(w.buffer, p...)
+
+	// Process complete lines
+	for {
+		idx := bytes.IndexByte(w.buffer, '\n')
+		if idx == -1 {
+			break
+		}
+
+		line := string(w.buffer[:idx])
+		line = strings.TrimRight(line, "\r")
+
+		*w.allLogs = append(*w.allLogs, line)
+		if w.logger != nil {
+			w.logger.Debug("%s", line)
+		}
+
+		w.buffer = w.buffer[idx+1:]
+	}
+
+	return len(p), nil
+}
+
+func (w *lineWriter) flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if len(w.buffer) > 0 {
+		line := string(w.buffer)
+		line = strings.TrimRight(line, "\r\n")
+		if line != "" {
+			*w.allLogs = append(*w.allLogs, line)
+			if w.logger != nil {
+				w.logger.Debug("%s", line)
+			}
+		}
+		w.buffer = nil
+	}
 }
 
 // CustomImageBackend implements the Backend interface using a custom Docker image
@@ -28,12 +77,7 @@ type CustomImageBackend struct {
 	Hostname       string
 	HostBackupPath string
 	dockerClient   *client.Client
-	logger         LogWriter
-}
-
-// SetLogger sets the logger for streaming output
-func (b *CustomImageBackend) SetLogger(logger LogWriter) {
-	b.logger = logger
+	logger         *logging.JobLogger
 }
 
 // NewCustomImageBackend creates a new custom image backend
@@ -51,6 +95,10 @@ func NewCustomImageBackend(id, customImage string, env map[string]string, hostna
 		HostBackupPath: hostBackupPath,
 		dockerClient:   cli,
 	}, nil
+}
+
+func (b *CustomImageBackend) SetLogger(logger *logging.JobLogger) {
+	b.logger = logger
 }
 
 func (b *CustomImageBackend) GetType() BackendType {
@@ -130,7 +178,25 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 		_ = b.dockerClient.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout})
 	}()
 
-	// Start streaming logs before starting the container
+	// Start the container first
+	if err := b.dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		return "", fmt.Errorf("start backup container: %w", err)
+	}
+
+	// Create shared slice for all logs
+	var allLogs []string
+
+	// Create line-by-line streaming writers
+	stdoutWriter := &lineWriter{
+		logger:  b.logger,
+		allLogs: &allLogs,
+	}
+	stderrWriter := &lineWriter{
+		logger:  b.logger,
+		allLogs: &allLogs,
+	}
+
+	// Attach to logs after container is started
 	logStream, err := b.dockerClient.ContainerLogs(ctx, containerID, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -141,45 +207,16 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 		return "", fmt.Errorf("attach to container logs: %w", err)
 	}
 
-	// Start the container
-	if err := b.dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
-		logStream.Close()
-		return "", fmt.Errorf("start backup container: %w", err)
-	}
-
-	// Stream logs in a goroutine
-	logChan := make(chan string, 100)
+	// Demultiplex Docker logs in a goroutine
 	errChan := make(chan error, 1)
 	go func() {
 		defer logStream.Close()
-		defer close(logChan)
-		
-		// Use a scanner to read logs line by line
-		scanner := bufio.NewScanner(logStream)
-		for scanner.Scan() {
-			line := scanner.Text()
-			// Docker logs may have 8-byte headers, strip them if present
-			if len(line) > 8 {
-				line = line[8:]
-			}
-			logChan <- line
+		// StdCopy demultiplexes the Docker log stream
+		_, err := stdcopy.StdCopy(stdoutWriter, stderrWriter, logStream)
+		if err != nil && err != io.EOF {
+			errChan <- fmt.Errorf("demultiplex logs: %w", err)
 		}
-		if err := scanner.Err(); err != nil && err != io.EOF {
-			errChan <- fmt.Errorf("read logs: %w", err)
-		}
-	}()
-
-	// Stream logs to the logger as they arrive
-	var allLogs []string
-	logDone := false
-	go func() {
-		for line := range logChan {
-			allLogs = append(allLogs, line)
-			if b.logger != nil {
-				b.logger.Debug("%s", line)
-			}
-		}
-		logDone = true
+		close(errChan)
 	}()
 
 	// Wait for container to complete
@@ -194,24 +231,19 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 		exitCode = status.StatusCode
 	}
 
-	// Wait for log streaming to complete
-	for !logDone {
-		time.Sleep(50 * time.Millisecond)
+	// Wait for log streaming to complete and flush any remaining buffered data
+	if err := <-errChan; err != nil {
+		_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+		return "", err
 	}
 
-	// Check for any log reading errors
-	select {
-	case err := <-errChan:
-		if err != nil {
-			_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
-			return "", err
-		}
-	default:
-	}
+	// Flush any remaining buffered lines
+	stdoutWriter.flush()
+	stderrWriter.flush()
 
 	_ = b.dockerClient.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
 
-	// Check exit code
+	// Check exit code - only return logs on error
 	if exitCode != 0 {
 		logsStr := ""
 		for _, line := range allLogs {
@@ -220,27 +252,13 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 		return logsStr, fmt.Errorf("backup container exited with code %d", exitCode)
 	}
 
-	// Clean up staging directory after successful backup
-	if err := b.cleanupStagingDir(instanceStagingPath); err != nil {
-		// Log warning but don't fail the backup
-		if b.logger != nil {
-			b.logger.Debug("warning: failed to cleanup staging directory: %v", err)
-		}
-	}
-
-	// Return all collected logs
-	logsStr := ""
-	for _, line := range allLogs {
-		logsStr += line + "\n"
-	}
-	return logsStr, nil
+	// Success - logs were already streamed in real-time, no need to return them
+	return "", nil
 }
 
 // DeleteOldSnapshots is a no-op for custom images - they handle their own retention
 // The retention policy is informational only
 func (b *CustomImageBackend) DeleteOldSnapshots(ctx context.Context, daily, weekly, monthly int) (string, error) {
-	// Custom images are expected to handle their own retention policy
-	// We don't enforce it from Marina's side
 	return "", nil
 }
 
@@ -249,26 +267,5 @@ func (b *CustomImageBackend) Close() error {
 	if b.dockerClient != nil {
 		return b.dockerClient.Close()
 	}
-	return nil
-}
-
-// cleanupStagingDir removes timestamp directories from the staging area
-// but keeps the instance directory itself for the next backup
-func (b *CustomImageBackend) cleanupStagingDir(instancePath string) error {
-	entries, err := os.ReadDir(instancePath)
-	if err != nil {
-		return fmt.Errorf("read staging directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			// Remove timestamp directories (format: YYYYMMDD-HHMMSS)
-			dirPath := filepath.Join(instancePath, entry.Name())
-			if err := os.RemoveAll(dirPath); err != nil {
-				return fmt.Errorf("remove staging directory %s: %w", dirPath, err)
-			}
-		}
-	}
-
 	return nil
 }
