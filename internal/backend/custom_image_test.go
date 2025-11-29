@@ -52,3 +52,63 @@ func TestCustomImageBackend_DeleteOldSnapshots(t *testing.T) {
 		t.Errorf("expected empty output, got %q", output)
 	}
 }
+
+func TestLineWriter(t *testing.T) {
+	var allLogs []string
+	writer := &lineWriter{
+		logger:  nil, // No logger for this test
+		allLogs: &allLogs,
+	}
+
+	// Test writing complete lines
+	_, err := writer.Write([]byte("line 1\n"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	if len(allLogs) != 1 || allLogs[0] != "line 1" {
+		t.Errorf("expected ['line 1'], got %v", allLogs)
+	}
+
+	// Test writing multiple lines at once
+	_, err = writer.Write([]byte("line 2\nline 3\n"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	if len(allLogs) != 3 {
+		t.Errorf("expected 3 lines, got %d", len(allLogs))
+	}
+
+	// Test partial line (should not be added yet)
+	_, err = writer.Write([]byte("partial"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	if len(allLogs) != 3 {
+		t.Errorf("partial line should not be added yet, expected 3 lines, got %d", len(allLogs))
+	}
+
+	// Complete the partial line
+	_, err = writer.Write([]byte(" line\n"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	if len(allLogs) != 4 || allLogs[3] != "partial line" {
+		t.Errorf("expected 4 lines with 'partial line' as last, got %v", allLogs)
+	}
+
+	// Test flush with remaining data
+	_, err = writer.Write([]byte("final"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	writer.flush()
+
+	if len(allLogs) != 5 || allLogs[4] != "final" {
+		t.Errorf("expected 5 lines with 'final' as last, got %v", allLogs)
+	}
+}
