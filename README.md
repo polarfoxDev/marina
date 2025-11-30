@@ -72,7 +72,7 @@ peers:
   - http://marina-node3:8080
 ```
 
-See [config.example.yml](config.example.yml) for more examples including S3 configuration and additional target options.
+See [config.example.yml](config.example.yml) for more examples including S3, SFTP, and additional target options.
 
 ### 2. Set up your docker-compose.yml
 
@@ -256,6 +256,58 @@ volumes:
 ```
 
 **Note**: Each custom backend container only sees its own instance's data at `/backup/{instanceID}` for security and isolation.
+
+### SFTP Backend Setup
+
+If you want to use SFTP as your backup destination, you need to provide SSH keys to Marina:
+
+**1. Generate or prepare SSH keys** (if you don't have them already):
+
+```bash
+mkdir -p ./ssh-keys
+ssh-keygen -t ed25519 -f ./ssh-keys/id_ed25519 -N "" -C "marina-backup"
+chmod 600 ./ssh-keys/id_ed25519
+chmod 644 ./ssh-keys/id_ed25519.pub
+```
+
+**2. Add your SFTP server's host key** to avoid "unknown host" errors:
+
+```bash
+ssh-keyscan -H backup.example.com >> ./ssh-keys/known_hosts
+# Or for custom ports:
+ssh-keyscan -p 2222 -H backup.example.com >> ./ssh-keys/known_hosts
+```
+
+**3. Copy your public key** to the SFTP server:
+
+```bash
+ssh-copy-id -i ./ssh-keys/id_ed25519.pub user@backup.example.com
+```
+
+**4. Mount the SSH keys** in your docker-compose.yml:
+
+```yaml
+services:
+  marina:
+    volumes:
+      - ./ssh-keys:/root/.ssh:ro  # Mount SSH keys read-only
+```
+
+**5. Configure SFTP repository** in your config.yml:
+
+```yaml
+instances:
+  - id: sftp-backup
+    repository: sftp:user@backup.example.com:/path/to/repo
+    schedule: "0 2 * * *"
+    env:
+      RESTIC_PASSWORD: your-restic-password
+    targets:
+      - volume: app-data
+      - db: postgres
+```
+
+**Note**: The SFTP user must have write access to the repository path. Restic will initialize the repository automatically on first backup if it doesn't exist.
 
 ### macOS Compatibility Note
 

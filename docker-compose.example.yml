@@ -14,6 +14,9 @@ services:
       - marina-data:/var/lib/marina
       # Configuration file (defaults to /config.yml, override with CONFIG_FILE env var if needed)
       - ./config.yml:/config.yml:ro
+      # SSH keys for SFTP backend support (optional, only if using sftp: repository)
+      # Ensure keys have proper permissions: chmod 600 id_rsa, chmod 644 id_rsa.pub, chmod 644 known_hosts
+      # - ./ssh-keys:/root/.ssh:ro
     ports:
       # Expose API server for status queries and future web UI
       - "8080:8080"

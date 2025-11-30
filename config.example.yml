@@ -49,6 +49,18 @@ instances:
       - volume: ${BACKUP_VOLUME} # Environment variable expansion also works in targets
         paths: ["/data", "/config"]
 
+  # Example: SFTP backend (requires SSH keys mounted in container)
+  # - id: sftp-backup
+  #   repository: sftp:user@backup.example.com:/path/to/repo
+  #   schedule: "0 5 * * *" # Daily at 5 AM
+  #   env:
+  #     RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+  #   targets:
+  #     - volume: app-data
+  #     - db: postgres
+  #   # NOTE: Requires SSH keys to be mounted at /root/.ssh/ in the container
+  #   # See docker-compose.example.yml for SSH key mount configuration
+
   # Example: Custom Docker image backend (alternative to Restic)
   # - id: custom-backup
   #   customImage: marina/example-backup:latest # Custom Docker image

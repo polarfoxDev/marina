@@ -57,7 +57,7 @@ RUN pnpm run build
 
 FROM alpine:3.20 AS runner
 WORKDIR /
-RUN apk add --no-cache ca-certificates bash curl coreutils tzdata \
+RUN apk add --no-cache ca-certificates bash curl coreutils tzdata openssh-client \
     && mkdir -p /backup /var/lib/marina /app/web \
     && update-ca-certificates
 COPY --from=build /out/marina /usr/local/bin/marina
