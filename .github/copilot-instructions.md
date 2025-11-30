@@ -230,6 +230,43 @@ schedules, _ := scheduler.BuildSchedulesFromConfig(cfg)
 
 **Testing**: Write tests for new functionality. Use table-driven tests for testing multiple cases. Validate error messages and edge cases.
 
+## Release Process
+
+When the user requests to "prepare release" or similar:
+
+1. **Choose version number** using semantic versioning:
+
+   - Patch (e.g., 0.8.0 → 0.8.1): Bug fixes, documentation updates, minor changes
+   - Minor (e.g., 0.8.0 → 0.9.0): New features, non-breaking changes
+   - Major (e.g., 0.9.0 → 1.0.0): Breaking changes, major milestones
+
+1. **Update CHANGELOG.md**:
+
+   - Move all entries from `## [Unreleased]` section to new version section with today's date
+   - Format: `## [X.Y.Z] - YYYY-MM-DD`
+   - Create empty `## [Unreleased]` section at the top
+   - Update version comparison links at bottom:
+     - Change `[Unreleased]` link to compare new version with HEAD
+     - Add new version comparison link
+
+1. **Update VERSION file**:
+   - Replace content with new version number (e.g., `0.9.0`)
+
+**Example CHANGELOG.md changes**:
+
+```markdown
+## [Unreleased]
+
+## [0.9.0] - 2025-11-30
+
+### Added
+
+- New feature description
+
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/polarfoxDev/marina/compare/v0.8.0...v0.9.0
+```
+
 ## Planned Features
 
 - **Recovery**: Restore operations from Restic snapshots

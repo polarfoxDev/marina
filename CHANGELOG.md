@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2025-11-30
+
+### Added
+
+- Documentation for SFTP backend setup with SSH key configuration
+- OpenSSH client added to Docker image for SFTP backend support
+
 ## [0.8.0] - 2025-11-29
 
 ### Changed
@@ -214,7 +221,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/polarfoxDev/marina/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/polarfoxDev/marina/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/polarfoxDev/marina/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/polarfoxDev/marina/compare/v0.6.0...v0.7.0
