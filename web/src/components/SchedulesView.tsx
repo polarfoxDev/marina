@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "wouter";
 import { api } from "../api";
 import type { InstanceBackupSchedule } from "../types";
 import {
@@ -11,9 +11,11 @@ import {
 import { TargetBadge } from "./TargetBadge";
 
 // Group schedules by node name
-function groupSchedulesByNode(schedules: InstanceBackupSchedule[]): Map<string, InstanceBackupSchedule[]> {
+function groupSchedulesByNode(
+  schedules: InstanceBackupSchedule[]
+): Map<string, InstanceBackupSchedule[]> {
   const grouped = new Map<string, InstanceBackupSchedule[]>();
-  
+
   for (const schedule of schedules) {
     const nodeName = schedule.nodeName || "Local";
     if (!grouped.has(nodeName)) {
@@ -21,7 +23,7 @@ function groupSchedulesByNode(schedules: InstanceBackupSchedule[]): Map<string, 
     }
     grouped.get(nodeName)!.push(schedule);
   }
-  
+
   return grouped;
 }
 
@@ -103,7 +105,7 @@ export function SchedulesView() {
                     </p>
                   </div>
                 )}
-                
+
                 {/* Schedule cards */}
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                   {nodeSchedules.map((schedule) => (
@@ -165,9 +167,13 @@ export function SchedulesView() {
 
                           {schedule.latestJobCompletedAt && (
                             <div>
-                              <span className="text-gray-500">Last backup:</span>
+                              <span className="text-gray-500">
+                                Last backup:
+                              </span>
                               <span className="ml-2 text-gray-900">
-                                {formatRelativeTime(schedule.latestJobCompletedAt)}
+                                {formatRelativeTime(
+                                  schedule.latestJobCompletedAt
+                                )}
                               </span>
                             </div>
                           )}
@@ -177,8 +183,12 @@ export function SchedulesView() {
                             <div className="ml-2 mt-1 text-gray-900">
                               <div className="text-xs space-y-0.5">
                                 <div>Daily: {schedule.retention.keepDaily}</div>
-                                <div>Weekly: {schedule.retention.keepWeekly}</div>
-                                <div>Monthly: {schedule.retention.keepMonthly}</div>
+                                <div>
+                                  Weekly: {schedule.retention.keepWeekly}
+                                </div>
+                                <div>
+                                  Monthly: {schedule.retention.keepMonthly}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -186,11 +196,18 @@ export function SchedulesView() {
 
                         {schedule.targetIds.length > 0 && (
                           <div className="mt-4 pt-4 border-t border-gray-200">
-                            <div className="text-xs text-gray-500 mb-2">Targets:</div>
+                            <div className="text-xs text-gray-500 mb-2">
+                              Targets:
+                            </div>
                             <div className="flex flex-wrap gap-1">
-                              {schedule.targetIds.slice(0, 4).map((targetId) => (
-                                <TargetBadge key={targetId} targetId={targetId} />
-                              ))}
+                              {schedule.targetIds
+                                .slice(0, 4)
+                                .map((targetId) => (
+                                  <TargetBadge
+                                    key={targetId}
+                                    targetId={targetId}
+                                  />
+                                ))}
                               {schedule.targetIds.length > 4 && (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
                                   +{schedule.targetIds.length - 4} more

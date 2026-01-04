@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation } from "wouter";
+import { api } from "../api";
 
 interface LoginViewProps {
   onLoginSuccess: () => void;
@@ -9,7 +10,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
+  const [, setLocation] = useLocation();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -17,10 +18,9 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     setLoading(true);
 
     try {
-      // Use the api.login method which stores token in localStorage
-      await import("../api").then(({ api }) => api.login(password));
+      await api.login(password);
       onLoginSuccess();
-      navigate("/");
+      setLocation("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
