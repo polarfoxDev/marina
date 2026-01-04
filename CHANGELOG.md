@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-01-04
+
+### Changed
+
+- **Frontend**: Migrated from React Router v6 to Wouter (~2KB vs ~17KB) for lighter bundle size
+- **Frontend**: Updated to React 19
+- **Frontend**: Updated all web dependencies to latest versions
+- **Backend**: Updated Go version from 1.25.3 to 1.25.5
+- **Backend**: Updated all Go dependencies to latest versions
+
+### Fixed
+
+- Fixed Vite build warning about mixed static/dynamic imports of api module
+
 ## [0.9.0] - 2025-11-30
 
 ### Added
@@ -221,7 +235,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/polarfoxDev/marina/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/polarfoxDev/marina/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/polarfoxDev/marina/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/polarfoxDev/marina/compare/v0.7.0...v0.7.1
