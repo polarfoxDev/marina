@@ -2,18 +2,20 @@
 
 **Docker-native backup orchestration using Restic**
 
-Marina is a config-driven backup orchestrator that backs up Docker volumes and databases. It uses [Restic](https://restic.net/) as the backup backend and supports multiple backup destinations (S3, local, and any Restic-compatible storage). In addition, Marina supports custom Docker image backends for maximum flexibility.
+Marina is a config-driven backup orchestrator that backs up Docker volumes and databases. It uses [Restic](https://restic.net/) as the backup backend
+and supports multiple backup destinations (S3, local, and any Restic-compatible storage). In addition, Marina supports custom Docker image backends for maximum flexibility.
 
 ## Project Status
 
 > [!WARNING]
-> Marina is still **beta** software. While the core functionality is stable and production-ready, breaking changes may occur between releases. Migration paths are not guaranteed until version 1.0. Always review the [CHANGELOG](CHANGELOG.md) before upgrading.
+> Marina is still **beta** software. While the core functionality is stable and production-ready, breaking changes may occur between releases.
+> Migration paths are not guaranteed until version 1.0. Always review the [CHANGELOG](CHANGELOG.md) before upgrading.
 
 Planned features:
 
 - Recovery operations from Restic snapshots
 
-**Target 1.0 release**: Late December 2025 or January 2026
+**Target 1.0 release**: early 2026
 
 ## Features
 
@@ -42,14 +44,15 @@ instances:
     repository: /mnt/backup/restic
     schedule: "0 2 * * *"  # Daily at 2 AM
     retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
-    resticTimeout: "10m"   # Optional: backup timeout for the restic command (default: 60m)
+    # Optional: backup timeout for the restic command (default: 60m)
+    resticTimeout: "10m"
     env:
       RESTIC_PASSWORD: your-restic-password
     targets:
       - volume: app-data
-        paths: ["/"]        # Paths relative to volume root
+        paths: ["/"]         # Paths relative to volume root
         stopAttached: false  # Optional: stop containers during backup
-      - db: postgres          # Container name
+      - db: postgres         # Container name
         # dbKind auto-detected from container image
         # dbKind: postgres   # Override auto-detection if needed
         # dumpArgs: ["--clean", "--if-exists"]  # Optional dump arguments
@@ -164,7 +167,8 @@ curl http://localhost:8080/api/logs/job/1 | jq
 
 ## Configuration Reference
 
-Marina uses a single configuration file to define backup instances and their targets. By default, Marina looks for the config at `/config.yml`. You can override this by setting the `CONFIG_FILE` environment variable to a different path.
+Marina uses a single configuration file to define backup instances and their targets. By default, Marina looks for the config at `/config.yml`.
+You can override this by setting the `CONFIG_FILE` environment variable to a different path.
 
 **Example**: Mount your config file to `/config.yml` in the container:
 
@@ -216,11 +220,14 @@ targets:
 | `preHook`  | No       | Command to run before backup (inside DB container) | `"psql -U myapp -c 'CHECKPOINT;'"`                         |
 | `postHook` | No       | Command to run after backup (inside DB container)  | `"echo Done"`                                              |
 
-**\*dbKind auto-detection**: Marina automatically detects the database type from the container image name (e.g., `postgres:16` → `postgres`). You can override this by explicitly specifying `dbKind`. If detection fails and no `dbKind` is provided, the target will be skipped.
+**\*dbKind auto-detection**: Marina automatically detects the database type from the container image name (e.g., `postgres:16` → `postgres`).
+You can override this by explicitly specifying `dbKind`. If detection fails and no `dbKind` is provided, the target will be skipped.
 
-**Important for MySQL/MariaDB**: Pass credentials via `dumpArgs` using `["-uroot", "-pPASSWORD"]` format. Do not set `MYSQL_PWD` environment variable as it interferes with container initialization.
+**Important for MySQL/MariaDB**: Pass credentials via `dumpArgs` using `["-uroot", "-pPASSWORD"]` format. Do not set `MYSQL_PWD`
+environment variable as it interferes with container initialization.
 
-> **Note**: Marina automatically generates a single tag for each backup in the format `type:name` (e.g., `volume:mydata` for volume backups or `db:postgres` for database backups).
+> **Note**: Marina automatically generates a single tag for each backup in the format `type:name` (e.g., `volume:mydata` for volume backups
+> or `db:postgres` for database backups).
 
 ## Configuration
 
@@ -231,7 +238,8 @@ Marina uses a single configuration file (`config.yml`) that defines:
 3. **Global defaults**: Optional default values for all instances
 4. **Mesh networking**: Optional multi-node federation for unified monitoring
 
-All backup targets are defined in the config file. At backup time, Marina validates that the referenced volumes and containers exist. Missing targets are skipped with warnings in the logs.
+All backup targets are defined in the config file. At backup time, Marina validates that the referenced volumes and containers exist.
+Missing targets are skipped with warnings in the logs.
 
 ### Important: Staging Directory Mount
 
@@ -241,7 +249,8 @@ Marina requires `/backup` to be mounted as a **host bind mount** (not a Docker v
 - **Database dumps**: Temporarily storing database dumps before backup
 - **Custom backends**: Providing backup data to custom Docker image backends
 
-Marina automatically detects the actual host path where `/backup` is mounted by inspecting its own container. This host path is then used to create bind mounts in temporary containers for:
+Marina automatically detects the actual host path where `/backup` is mounted by inspecting its own container.
+This host path is then used to create bind mounts in temporary containers for:
 
 - Volume copy operations (temporary Alpine containers)
 - Custom image backend containers (scoped to `/backup/{instanceID}`)
@@ -307,11 +316,13 @@ instances:
       - db: postgres
 ```
 
-**Note**: The SFTP user must have write access to the repository path. Restic will initialize the repository automatically on first backup if it doesn't exist.
+**Note**: The SFTP user must have write access to the repository path. Restic will initialize the repository automatically on first backup
+if it doesn't exist.
 
 ### macOS Compatibility Note
 
-When using Restic on macOS with Docker Desktop, **use named Docker volumes instead of bind mounts** for the repository storage. Bind mounts on macOS can cause "bad file descriptor" errors during fsync operations due to filesystem compatibility issues between the Docker VM and macOS.
+When using Restic on macOS with Docker Desktop, **use named Docker volumes instead of bind mounts** for the repository storage. Bind mounts
+on macOS can cause "bad file descriptor" errors during fsync operations due to filesystem compatibility issues between the Docker VM and macOS.
 
 **Recommended for macOS**:
 
@@ -364,11 +375,13 @@ instances:
 - Exit with code 0 on success, non-zero on failure
 - Handle its own retention policy (Marina's retention config is informational only)
 
-See the [custom backup image example](examples/custom-backup-image/) for a complete working example and [custom backends documentation](docs/custom-backends.md) for detailed implementation guide.
+See the [custom backup image example](examples/custom-backup-image/) for a complete working example and
+[custom backends documentation](docs/custom-backends.md) for detailed implementation guide.
 
 ## Documentation
 
-See [config.example.yml](config.example.yml) for a complete configuration example including mesh mode setup and [docker-compose.example.yml](docker-compose.example.yml) for a full deployment example.
+See [config.example.yml](config.example.yml) for a complete configuration example including mesh mode setup and
+[docker-compose.example.yml](docker-compose.example.yml) for a full deployment example.
 
 - [Custom Backends](docs/custom-backends.md) - Build your own backup backend using Docker images
 - [Architecture](docs/architecture-diagram.md) - System design and data flow

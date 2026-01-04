@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link } from "wouter";
 import { api } from "../api";
 import type { JobStatus, JobStatusState, LogEntry, LogLevel } from "../types";
 import {
@@ -12,11 +12,12 @@ import {
 import { TargetBadge } from "./TargetBadge";
 import { formatTargetName } from "../utils";
 
-export function JobDetailsView() {
-  const { instanceId, jobId } = useParams<{
-    instanceId: string;
-    jobId: string;
-  }>();
+interface JobDetailsViewProps {
+  instanceId: string;
+  jobId: string;
+}
+
+export function JobDetailsView({ instanceId, jobId }: JobDetailsViewProps) {
   const [job, setJob] = useState<JobStatus | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [filteredLogs, setFilteredLogs] = useState<LogEntry[]>([]);
@@ -28,8 +29,6 @@ export function JobDetailsView() {
   const [levelFilter, setLevelFilter] = useState<LogLevel>("INFO");
 
   const loadJobStatus = useCallback(async () => {
-    if (!jobId || !instanceId) return;
-
     try {
       const numericJobId = parseInt(jobId, 10);
       const statuses = await api.getJobStatus(instanceId);
@@ -49,8 +48,6 @@ export function JobDetailsView() {
 
   const loadLogs = useCallback(
     async (nodeUrl?: string) => {
-      if (!jobId) return;
-
       try {
         const numericJobId = parseInt(jobId, 10);
         // Pass nodeUrl if the job is from a remote node
@@ -81,9 +78,7 @@ export function JobDetailsView() {
   // Load job status and logs together initially and when status changes
   // Initial load: only when jobId changes
   useEffect(() => {
-    if (jobId) {
-      loadJobStatus();
-    }
+    loadJobStatus();
   }, [jobId, loadJobStatus]);
 
   // Load logs whenever jobId or nodeUrl changes (nodeUrl may be empty/undefined)
@@ -97,7 +92,7 @@ export function JobDetailsView() {
 
   // Poll job status every 5 seconds when job is in progress
   useEffect(() => {
-    if (!jobId || job?.status !== "in_progress") return;
+    if (job?.status !== "in_progress") return;
 
     const statusInterval = setInterval(() => {
       loadJobStatus();
@@ -123,7 +118,7 @@ export function JobDetailsView() {
 
   // Separate effect for log polling when job is in progress
   useEffect(() => {
-    if (!jobId || !job || job.status !== "in_progress") return;
+    if (!job || job.status !== "in_progress") return;
 
     // Poll logs every 1 second when job is in progress
     const logsInterval = setInterval(() => {

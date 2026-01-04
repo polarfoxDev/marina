@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link } from "wouter";
 import { api } from "../api";
 import type { JobStatus } from "../types";
 import {
@@ -9,15 +9,16 @@ import {
   getStatusLabel,
 } from "../utils";
 
-export function JobStatusesView() {
-  const { instanceId } = useParams<{ instanceId: string }>();
+interface JobStatusesViewProps {
+  instanceId: string;
+}
+
+export function JobStatusesView({ instanceId }: JobStatusesViewProps) {
   const [jobs, setJobs] = useState<JobStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadJobs = useCallback(async () => {
-    if (!instanceId) return;
-
     try {
       const data = await api.getJobStatus(instanceId);
       setJobs(data.sort((a, b) => b.iid - a.iid)); // Sort by iid descending
@@ -32,11 +33,9 @@ export function JobStatusesView() {
   }, [instanceId]);
 
   useEffect(() => {
-    if (instanceId) {
-      loadJobs();
-      const interval = setInterval(loadJobs, 10000); // Refresh every 10s
-      return () => clearInterval(interval);
-    }
+    loadJobs();
+    const interval = setInterval(loadJobs, 10000); // Refresh every 10s
+    return () => clearInterval(interval);
   }, [instanceId, loadJobs]);
 
   if (loading) {
@@ -70,17 +69,20 @@ export function JobStatusesView() {
         <p className="mt-2 text-gray-600">
           History of backup jobs for this instance
         </p>
-        {jobs.length > 0 && (() => {
-          const nodes = [...new Set(jobs.map(j => j.nodeName).filter(Boolean))];
-          if (nodes.length > 1) {
-            return (
-              <p className="mt-1 text-sm text-blue-600">
-                Showing jobs from {nodes.length} node(s): {nodes.join(", ")}
-              </p>
-            );
-          }
-          return null;
-        })()}
+        {jobs.length > 0 &&
+          (() => {
+            const nodes = [
+              ...new Set(jobs.map((j) => j.nodeName).filter(Boolean)),
+            ];
+            if (nodes.length > 1) {
+              return (
+                <p className="mt-1 text-sm text-blue-600">
+                  Showing jobs from {nodes.length} node(s): {nodes.join(", ")}
+                </p>
+              );
+            }
+            return null;
+          })()}
       </div>
 
       {jobs.length === 0 ? (
