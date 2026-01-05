@@ -56,7 +56,12 @@ instances:
         # dbKind auto-detected from container image
         # dbKind: postgres   # Override auto-detection if needed
         # dumpArgs: ["--clean", "--if-exists"]  # Optional dump arguments
-        # preHook: "psql -U myapp -c 'CHECKPOINT;'"  # Optional pre-backup command
+    beforeBackup: # Optional commands to run before backup starts
+      - container: app-postgres # run inside existing container
+        command: "psql -U myapp -c 'CHECKPOINT;'"
+    afterBackup: # Optional commands to run after backup completes
+      - image: ubuntu:latest # run in temporary container
+        command: "curl -X POST https://my.app/backup-complete"
 
 # Optional global defaults
 stopAttached: true  # Stop containers when backing up volumes
@@ -202,23 +207,19 @@ targets:
 
 #### Volume Targets
 
-| Field          | Required | Description                                       | Example           |
-| -------------- | -------- | ------------------------------------------------- | ----------------- |
-| `volume`       | Yes      | Volume name (as shown in `docker volume ls`)      | `"app-data"`      |
-| `paths`        | No       | Paths to backup (relative to volume root)         | `["/", "/data"]`  |
-| `stopAttached` | No       | Stop attached containers during backup            | `true`            |
-| `preHook`      | No       | Command to run before backup (in first container) | `"echo Starting"` |
-| `postHook`     | No       | Command to run after backup (in first container)  | `"echo Done"`     |
+| Field          | Required | Description                                  | Example          |
+| -------------- | -------- | -------------------------------------------- | ---------------- |
+| `volume`       | Yes      | Volume name (as shown in `docker volume ls`) | `"app-data"`     |
+| `paths`        | No       | Paths to backup (relative to volume root)    | `["/", "/data"]` |
+| `stopAttached` | No       | Stop attached containers during backup       | `true`           |
 
 #### Database Targets
 
-| Field      | Required | Description                                        | Example                                                    |
-| ---------- | -------- | -------------------------------------------------- | ---------------------------------------------------------- |
-| `db`       | Yes      | Container name (as shown in `docker ps`)           | `"postgres"`, `"my-mysql"`                                 |
-| `dbKind`   | No*      | Database type (auto-detected if not provided)      | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
-| `dumpArgs` | No       | Additional arguments for dump command              | `["--clean", "--if-exists"]` (PostgreSQL)                  |
-| `preHook`  | No       | Command to run before backup (inside DB container) | `"psql -U myapp -c 'CHECKPOINT;'"`                         |
-| `postHook` | No       | Command to run after backup (inside DB container)  | `"echo Done"`                                              |
+| Field      | Required | Description                                   | Example                                                    |
+| ---------- | -------- | --------------------------------------------- | ---------------------------------------------------------- |
+| `db`       | Yes      | Container name (as shown in `docker ps`)      | `"postgres"`, `"my-mysql"`                                 |
+| `dbKind`   | No*      | Database type (auto-detected if not provided) | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
+| `dumpArgs` | No       | Additional arguments for dump command         | `["--clean", "--if-exists"]` (PostgreSQL)                  |
 
 **\*dbKind auto-detection**: Marina automatically detects the database type from the container image name (e.g., `postgres:16` → `postgres`).
 You can override this by explicitly specifying `dbKind`. If detection fails and no `dbKind` is provided, the target will be skipped.
@@ -259,9 +260,9 @@ This host path is then used to create bind mounts in temporary containers for:
 
 ```yaml
 volumes:
-  - ./staging:/backup              # Relative path
+  - ./staging:/backup                # Relative path
   - /var/lib/marina/staging:/backup  # Absolute path
-  - $HOME/marina-staging:/backup   # With environment variable
+  - $HOME/marina-staging:/backup     # With environment variable
 ```
 
 **Note**: Each custom backend container only sees its own instance's data at `/backup/{instanceID}` for security and isolation.

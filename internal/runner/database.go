@@ -52,30 +52,6 @@ func (r *Runner) stageDatabase(ctx context.Context, instanceID, timestamp string
 		jobLogger.Debug("auto-detected database kind: %s", dbKind)
 	}
 
-	// Execute pre-hook
-	if target.PreHook != "" {
-		jobLogger.Debug("executing pre-hook")
-		output, err := docker.ExecInContainer(ctx, r.Docker, containerID, []string{"/bin/sh", "-lc", target.PreHook})
-		if err != nil {
-			return "", nil, fmt.Errorf("prehook: %w", err)
-		}
-		if output != "" {
-			jobLogger.Debug("pre-hook output: %s", output)
-		}
-		// Defer post-hook
-		defer func() {
-			if target.PostHook != "" {
-				jobLogger.Debug("executing post-hook")
-				output, err := docker.ExecInContainer(ctx, r.Docker, containerID, []string{"/bin/sh", "-lc", target.PostHook})
-				if err != nil {
-					jobLogger.Warn("post-hook failed: %v", err)
-				} else if output != "" {
-					jobLogger.Debug("post-hook output: %s", output)
-				}
-			}
-		}()
-	}
-
 	// Create dump inside DB container (use same timestamp as instance backup)
 	containerDumpDir := fmt.Sprintf("/tmp/marina-%s", timestamp)
 	mk := fmt.Sprintf("mkdir -p %q", containerDumpDir)

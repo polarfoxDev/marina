@@ -45,11 +45,19 @@ instances:
       - volume: app-data
         paths: ["/"] # Optional: paths relative to volume root
         stopAttached: false # Optional: stop containers during backup
-        preHook: "" # Optional: command before backup
-        postHook: "" # Optional: command after backup
       - db: postgres # Container name
         dbKind: postgres # Optional: auto-detected if not specified
         dumpArgs: ["--clean"] # Optional: additional dump arguments
+    beforeBackup: # Optional commands to run before backup starts
+      - container: app-postgres # run inside this container
+        command: "psql -U myapp -c 'CHECKPOINT;'"
+      - image: ubuntu:latest # run in temporary container
+        command: "curl -X POST http://app-service/prepare-backup"
+    afterBackup: # Optional commands to run after backup completes
+      - container: app-postgres
+        command: "psql -U myapp -c 'VACUUM;'"
+      - image: ubuntu:latest
+        command: "curl -X POST http://app-service/backup-complete"
 
   - id: custom-backup
     customImage: your-registry/backup:latest # Alternative to Restic

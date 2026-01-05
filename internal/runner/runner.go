@@ -277,6 +277,22 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 		return err
 	}
 
+	// Execute beforeBackup hooks if any
+	for _, hook := range job.BeforeBackup {
+		if err := r.executeHook(ctx, hook, instanceLogger); err != nil {
+			instanceLogger.Error("beforeBackup hook failed: %v", err)
+			r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
+				status.Status = model.StatusFailed
+				now := time.Now()
+				status.LastCompletedAt = &now
+				status.LastTargetsSuccessful = 0
+			})
+			return fmt.Errorf("beforeBackup hook failed: %w", err)
+		} else {
+			instanceLogger.Info("beforeBackup hook completed successfully")
+		}
+	}
+
 	// Use instance start time as timestamp for all staged paths
 	timestamp := startTime.Format("20060102-150405")
 
@@ -408,6 +424,17 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 
 	// Apply retention policy
 	_, _ = dest.DeleteOldSnapshots(ctx, job.Retention.KeepDaily, job.Retention.KeepWeekly, job.Retention.KeepMonthly)
+
+	// Execute afterBackup hooks if any
+	for _, hook := range job.AfterBackup {
+		if err := r.executeHook(ctx, hook, instanceLogger); err != nil {
+			instanceLogger.Error("afterBackup hook failed: %v", err)
+			// Don't fail the job - backup already succeeded, just log the error
+			// Continue with remaining hooks
+		} else {
+			instanceLogger.Info("afterBackup hook completed successfully")
+		}
+	}
 
 	// Update job status to success/partial success
 	if err := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
