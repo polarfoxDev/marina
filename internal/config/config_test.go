@@ -134,7 +134,6 @@ func TestLoad_TargetEnvExpansion(t *testing.T) {
        RESTIC_PASSWORD: test
      targets:
        - volume: ${VOL_NAME}
-         preHook: "echo starting"
        - db: ${DB_NAME}
          dbKind: postgres
          dumpArgs: ["-U", "postgres", "-p${DB_PASSWORD}"]
@@ -154,9 +153,6 @@ func TestLoad_TargetEnvExpansion(t *testing.T) {
 	// Check volume target
 	if d.Targets[0].Volume != "my-volume" {
 		t.Fatalf("volume name not expanded: %q", d.Targets[0].Volume)
-	}
-	if d.Targets[0].PreHook != "echo starting" {
-		t.Fatalf("preHook not expanded: %q", d.Targets[0].PreHook)
 	}
 	// Check DB target
 	if d.Targets[1].DB != "my-postgres" {

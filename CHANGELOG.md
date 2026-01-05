@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Instance-level `beforeBackup` and `afterBackup` hooks for running commands before/after backups
+- Hooks can execute in existing containers (`container:`) or temporary containers (`image:`)
+- `ExecInTemporaryContainer` function for running hook commands in ephemeral containers
+
+### Changed
+
+- Moved hook system from per-target `preHook`/`postHook` to instance-level `beforeBackup`/`afterBackup`
+- `afterBackup` hook failures log errors but don't fail successful backups
+
+### Removed
+
+- Per-target `preHook` and `postHook` configuration options (replaced by instance-level hooks)
+
 ## [0.10.0] - 2026-01-04
 
 ### Changed

@@ -19,8 +19,6 @@ type BackupTarget struct {
 	Name       string     // human label (volume name or container name)
 	Type       TargetType // volume|db
 	InstanceID InstanceID // e.g. "hetzner-s3"
-	PreHook    string     // command inside app/DB container (optional)
-	PostHook   string
 	// Volume specifics
 	Paths        []string // default ["/"]
 	AttachedCtrs []string // containers using the volume (for hooks)
@@ -36,9 +34,17 @@ type InstanceBackupSchedule struct {
 	InstanceID   InstanceID
 	ScheduleCron string // cron schedule from config
 	Targets      []BackupTarget
-	Retention    Retention // Common retention policy (from first target or config default)
+	BeforeBackup []HookCommand // Commands to run before backup starts
+	AfterBackup  []HookCommand // Commands to run after backup completes
+	Retention    Retention     // Common retention policy (from first target or config default)
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+type HookCommand struct {
+	Container string `yaml:"container,omitempty"` // Container name to run command in
+	Image     string `yaml:"image,omitempty"`     // Temporary image to run command in
+	Command   string `yaml:"command"`             // Command to execute
 }
 
 type InstanceBackupScheduleView struct {

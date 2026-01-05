@@ -17,6 +17,93 @@ import (
 	"github.com/polarfoxDev/marina/internal/logging"
 )
 
+func GetContainerID(ctx context.Context, cli *client.Client, containerName string) (string, error) {
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return "", fmt.Errorf("list containers: %w", err)
+	}
+	for _, ctr := range containers {
+		for _, name := range ctr.Names {
+			trimmedName := strings.TrimPrefix(name, "/")
+			if trimmedName == containerName {
+				return ctr.ID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("container %s not found", containerName)
+}
+
+func ExecInTemporaryContainer(ctx context.Context, cli *client.Client, imageName string, cmd []string) (string, error) {
+	// Ensure image is available locally
+	_, inspectErr := cli.ImageInspect(ctx, imageName)
+	if inspectErr != nil {
+		rc, err := cli.ImagePull(ctx, imageName, image.PullOptions{})
+		if err != nil {
+			return "", fmt.Errorf("pull image %s: %w", imageName, err)
+		}
+		// Drain the pull response to ensure pull completes
+		_, _ = io.Copy(io.Discard, rc)
+		rc.Close()
+	}
+
+	config := &container.Config{
+		Image:        imageName,
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+	hostConfig := &container.HostConfig{
+		AutoRemove: true,
+	}
+
+	resp, err := cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
+	if err != nil {
+		return "", fmt.Errorf("create temp container: %w", err)
+	}
+	containerID := resp.ID
+
+	// Attach to container to capture output
+	attachResp, err := cli.ContainerAttach(ctx, containerID, container.AttachOptions{
+		Stream: true,
+		Stdout: true,
+		Stderr: true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("attach to temp container: %w", err)
+	}
+	defer attachResp.Close()
+
+	if err := cli.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		return "", fmt.Errorf("start temp container: %w", err)
+	}
+
+	// Read output from attached stream
+	outputBuilder := &strings.Builder{}
+	buf := make([]byte, 1024)
+	for {
+		n, readErr := attachResp.Reader.Read(buf)
+		if n > 0 {
+			outputBuilder.Write(buf[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+
+	// Wait for container to finish
+	statusCh, errCh := cli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	select {
+	case result := <-statusCh:
+		if result.StatusCode != 0 {
+			return outputBuilder.String(), fmt.Errorf("command exited with code %d", result.StatusCode)
+		}
+	case err := <-errCh:
+		return "", fmt.Errorf("wait for temp container: %w", err)
+	}
+
+	return outputBuilder.String(), nil
+}
+
 func ExecInContainer(ctx context.Context, cli *client.Client, containerID string, cmd []string) (string, error) {
 	options := container.ExecOptions{
 		Cmd:          cmd,

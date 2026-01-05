@@ -4,15 +4,22 @@ instances:
     schedule: "* * * * *" # Every minute for fast integration testing
     env:
       RESTIC_PASSWORD: testpass
+    beforeBackup:
+      - container: mariadb-it
+        command: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdbeforefirstdump;'"
+      - container: pg-empty-it
+        command: "echo '#!/bin/sh' > /usr/local/bin/pg_dumpall && echo 'exit 0' >> /usr/local/bin/pg_dumpall && chmod +x /usr/local/bin/pg_dumpall"
+    afterBackup:
+      - container: mariadb-it
+        command: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdafterfirstdump;'"
+      - image: alpine:3.20
+        command: "echo 'After backup hook executed'"
     targets:
       - db: pg-it # postgres container
       - db: mysql-it # mysql container
-      - db: mariadb-it # mariadb container with hooks
-        preHook: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdbeforefirstdump;'"
-        postHook: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdafterfirstdump;'"
+      - db: mariadb-it # mariadb container
       - db: mongo-it # mongo container
       - db: pg-empty-it # postgres-empty container
-        preHook: "echo '#!/bin/sh' > /usr/local/bin/pg_dumpall && echo 'exit 0' >> /usr/local/bin/pg_dumpall && chmod +x /usr/local/bin/pg_dumpall"
       - volume: integration_testdata # volume-writer data (prefixed by docker-compose)
       - volume: integration_testdata-empty # volume-writer-empty data (prefixed by docker-compose)
 

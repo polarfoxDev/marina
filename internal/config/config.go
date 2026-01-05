@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 
+	"github.com/polarfoxDev/marina/internal/model"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,14 +25,16 @@ type Config struct {
 
 // BackupInstance represents a backup instance configuration
 type BackupInstance struct {
-	ID            string            `yaml:"id"`
-	Repository    string            `yaml:"repository,omitempty"`    // Restic repository (not used if customImage is set)
-	CustomImage   string            `yaml:"customImage,omitempty"`   // Custom Docker image for backup (alternative to Restic)
-	Schedule      string            `yaml:"schedule"`                // Cron schedule for this instance's backups
-	Retention     string            `yaml:"retention,omitempty"`     // Optional: instance-specific retention (overrides global)
-	ResticTimeout string            `yaml:"resticTimeout,omitempty"` // Optional: instance-specific timeout (overrides global)
-	Env           map[string]string `yaml:"env,omitempty"`           // Environment variables passed to backend
-	Targets       []TargetConfig    `yaml:"targets,omitempty"`       // List of backup targets (volumes and databases)
+	ID            string              `yaml:"id"`
+	Repository    string              `yaml:"repository,omitempty"`    // Restic repository (not used if customImage is set)
+	CustomImage   string              `yaml:"customImage,omitempty"`   // Custom Docker image for backup (alternative to Restic)
+	Schedule      string              `yaml:"schedule"`                // Cron schedule for this instance's backups
+	Retention     string              `yaml:"retention,omitempty"`     // Optional: instance-specific retention (overrides global)
+	ResticTimeout string              `yaml:"resticTimeout,omitempty"` // Optional: instance-specific timeout (overrides global)
+	Env           map[string]string   `yaml:"env,omitempty"`           // Environment variables passed to backend
+	Targets       []TargetConfig      `yaml:"targets,omitempty"`       // List of backup targets (volumes and databases)
+	BeforeBackup  []model.HookCommand `yaml:"beforeBackup,omitempty"`  // Commands to run before backup starts
+	AfterBackup   []model.HookCommand `yaml:"afterBackup,omitempty"`   // Commands to run after backup completes
 }
 
 // TargetConfig represents a backup target configuration
@@ -40,8 +43,6 @@ type TargetConfig struct {
 	DB           string   `yaml:"db,omitempty"`           // Container name for database (mutually exclusive with Volume)
 	Paths        []string `yaml:"paths,omitempty"`        // Paths to backup (for volumes, default: ["/"])
 	StopAttached *bool    `yaml:"stopAttached,omitempty"` // Stop containers using volume (for volumes)
-	PreHook      string   `yaml:"preHook,omitempty"`      // Command to run before backup
-	PostHook     string   `yaml:"postHook,omitempty"`     // Command to run after backup
 	DBKind       string   `yaml:"dbKind,omitempty"`       // Database type: postgres, mysql, mariadb, mongo, redis (auto-detected if not provided)
 	DumpArgs     []string `yaml:"dumpArgs,omitempty"`     // Arguments for database dump command
 }
@@ -72,8 +73,6 @@ func Load(path string) (*Config, error) {
 		for j := range cfg.Instances[i].Targets {
 			cfg.Instances[i].Targets[j].Volume = expandEnv(cfg.Instances[i].Targets[j].Volume)
 			cfg.Instances[i].Targets[j].DB = expandEnv(cfg.Instances[i].Targets[j].DB)
-			cfg.Instances[i].Targets[j].PreHook = expandEnv(cfg.Instances[i].Targets[j].PreHook)
-			cfg.Instances[i].Targets[j].PostHook = expandEnv(cfg.Instances[i].Targets[j].PostHook)
 			cfg.Instances[i].Targets[j].DBKind = expandEnv(cfg.Instances[i].Targets[j].DBKind)
 			for k := range cfg.Instances[i].Targets[j].Paths {
 				cfg.Instances[i].Targets[j].Paths[k] = expandEnv(cfg.Instances[i].Targets[j].Paths[k])
