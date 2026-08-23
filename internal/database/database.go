@@ -4,12 +4,34 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/polarfoxDev/marina/internal/model"
 	_ "modernc.org/sqlite"
 )
+
+// connDSN appends per-connection pragma query parameters to dbPath. The
+// modernc.org/sqlite driver applies "_pragma" parameters to every physical
+// connection it opens (see (*Driver).Open), not just the first one - which
+// matters because busy_timeout, foreign_keys, synchronous, cache_size and
+// temp_store are all per-connection settings in SQLite. Without this, a
+// plain db.Exec("PRAGMA ...") right after sql.Open only configures whichever
+// single connection database/sql happens to borrow for that call, and any
+// connection opened later by the pool (e.g. under concurrent writes with
+// SetMaxOpenConns > 1) falls back to SQLite defaults - notably
+// busy_timeout=0, which fails immediately with SQLITE_BUSY instead of
+// waiting for a locked database.
+func connDSN(dbPath string) string {
+	params := url.Values{}
+	params.Add("_pragma", "busy_timeout(10000)")
+	params.Add("_pragma", "foreign_keys(ON)")
+	params.Add("_pragma", "synchronous(NORMAL)")
+	params.Add("_pragma", "cache_size(-64000)")
+	params.Add("_pragma", "temp_store(MEMORY)")
+	return dbPath + "?" + params.Encode()
+}
 
 type DB struct {
 	db *sql.DB
@@ -29,7 +51,7 @@ func InitDB(dbPath string) (*DB, error) {
 			time.Sleep(delay)
 		}
 
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("sqlite", connDSN(dbPath))
 		if err != nil {
 			if attempt == maxRetries-1 {
 				return nil, fmt.Errorf("failed to open database after %d attempts: %w", maxRetries, err)
@@ -42,14 +64,13 @@ func InitDB(dbPath string) (*DB, error) {
 		db.SetMaxIdleConns(5)
 		db.SetConnMaxLifetime(time.Minute * 5)
 
-		// Configure SQLite pragmas for better concurrency and performance
+		// busy_timeout, foreign_keys, synchronous, cache_size and temp_store
+		// are applied per-connection via the DSN (see connDSN) so that every
+		// connection the pool opens gets them, not just this one. journal_mode
+		// is persisted in the database file itself, so setting it once here is
+		// sufficient - it doesn't need to be a per-connection DSN pragma.
 		pragmas := []string{
-			"PRAGMA busy_timeout = 10000", // 10 second timeout - set this FIRST
 			"PRAGMA journal_mode = WAL",
-			"PRAGMA foreign_keys = ON",
-			"PRAGMA synchronous = NORMAL", // Faster writes with WAL mode
-			"PRAGMA cache_size = -64000",  // 64MB cache
-			"PRAGMA temp_store = MEMORY",  // Use memory for temp tables
 		}
 
 		pragmaFailed := false
