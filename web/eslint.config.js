@@ -17,6 +17,10 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // These React Compiler-derived rules flag the app's standard
+      // fetch-on-mount/poll effect pattern throughout; not applicable here.
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/immutability': 'off',
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

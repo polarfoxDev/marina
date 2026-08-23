@@ -10,9 +10,6 @@ end-to-end encryption. In addition, Marina supports custom Docker image backends
 > [!WARNING]
 > Marina is still **beta** software. While the core functionality is stable and basically production-ready, breaking changes may occur between releases.
 > Migration paths are not guaranteed until version 1.0. Always review the [CHANGELOG](CHANGELOG.md) before upgrading.
->
-> **Status Update June 2026:** Unfortunately, I didn't have enough time recently to maintain this project and get it done, but I still plan to get it going again soon and
-> release a version 1.0 later this year.
 
 ## Features
 
