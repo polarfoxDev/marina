@@ -9,7 +9,7 @@
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │              Initialization                         │    │
 │  │  • Load config.yml                                  │    │
-│  │  • Initialize Restic repositories                   │    │
+│  │  • Initialize S3 destinations                       │    │
 │  │  • Create Runner with cron scheduler                │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                           │                                 │
@@ -77,11 +77,10 @@
                 │
                 ▼
          ┌─────────────┐
-         │   Restic    │
-         │  Backend    │
+         │  S3 Backend │
          │             │
-         │ • backup    │
-         │ • forget    │
-         │ • prune     │
+         │ • archive   │
+         │ • upload    │
+         │ • retention │
          └─────────────┘
 ```

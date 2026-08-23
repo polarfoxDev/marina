@@ -1,6 +1,6 @@
 # Custom Backup Backends
 
-Marina supports custom Docker images as an alternative to the built-in Restic backend. This allows you to use any backup tool or workflow by packaging it as a Docker image.
+Marina supports custom Docker images as an alternative to the built-in S3 backend. This allows you to use any backup tool or workflow by packaging it as a Docker image.
 
 ## Quick Start
 
@@ -163,7 +163,7 @@ exit 1
 
 ## Retention Policy
 
-Unlike Restic, Marina does **not** enforce retention policies for custom images. Your custom image is responsible for implementing its own retention logic if needed.
+Unlike the S3 backend, Marina does **not** enforce retention policies for custom images. Your custom image is responsible for implementing its own retention logic if needed.
 
 The `retention` field in config.yml is preserved for documentation purposes but has no effect on custom image backups.
 

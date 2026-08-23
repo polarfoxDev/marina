@@ -14,18 +14,15 @@ services:
       - marina-data:/var/lib/marina
       # Configuration file (defaults to /config.yml, override with CONFIG_FILE env var if needed)
       - ./config.yml:/config.yml:ro
-      # SSH keys for SFTP backend support (optional, only if using sftp: repository)
-      # Ensure keys have proper permissions: chmod 600 id_rsa, chmod 644 id_rsa.pub, chmod 644 known_hosts
-      # - ./ssh-keys:/root/.ssh:ro
     ports:
       # Expose API server for status queries and future web UI
       - "8080:8080"
     environment:
       # Environment variables that can be referenced in config.yml
       # using ${VAR_NAME} or $VAR_NAME syntax
-      RESTIC_PASSWORD: "${RESTIC_PASSWORD}"
-      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
-      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID}"
+      S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY}"
+      MARINA_ENC_PASSWORD: "${MARINA_ENC_PASSWORD}"
       DO_SPACES_KEY: "${DO_SPACES_KEY}"
       DO_SPACES_SECRET: "${DO_SPACES_SECRET}"
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"

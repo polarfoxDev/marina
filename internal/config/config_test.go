@@ -19,29 +19,33 @@ func writeTempConfig(t *testing.T, content string) string {
 func TestLoad_EnvExpansionAndGetDestination(t *testing.T) {
 	t.Setenv("AWS_KEY", "key123")
 	t.Setenv("AWS_SECRET", "sec456")
-	t.Setenv("RESTIC_PASS", "restic-pass")
+	t.Setenv("ENC_PASS", "enc-pass")
 	cfgYAML := `
- instances:
-   - id: hetzner-s3
-     repository: s3:https://fsn1.example.com/bucket
-     schedule: "0 2 * * *"
-     env:
-       AWS_ACCESS_KEY_ID: ${AWS_KEY}
-       AWS_SECRET_ACCESS_KEY: $AWS_SECRET
-       RESTIC_PASSWORD: ${RESTIC_PASS}
-     targets:
-       - volume: app-data
-         paths: ["/"]
-   - id: local
-     repository: /mnt/backup/restic
-     schedule: "0 3 * * *"
-     env:
-       RESTIC_PASSWORD: direct
-     targets:
-       - db: postgres
-         dbKind: postgres
- retention: "14d:8w:12m"
- stopAttached: true
+instances:
+  - id: hetzner-s3
+    s3:
+      endpoint: fsn1.example.com
+      bucket: marina-backups
+      accessKeyId: ${AWS_KEY}
+      secretAccessKey: $AWS_SECRET
+    encryption:
+      password: ${ENC_PASS}
+    schedule: "0 2 * * *"
+    targets:
+      - volume: app-data
+        paths: ["/"]
+  - id: other-bucket
+    s3:
+      endpoint: fsn1.example.com
+      bucket: other-bucket
+      accessKeyId: key
+      secretAccessKey: secret
+    schedule: "0 3 * * *"
+    targets:
+      - db: postgres
+        dbKind: postgres
+retention: "14d:8w:12m"
+stopAttached: true
 `
 	p := writeTempConfig(t, cfgYAML)
 	cfg, err := Load(p)
@@ -55,11 +59,17 @@ func TestLoad_EnvExpansionAndGetDestination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDestination error: %v", err)
 	}
-	if d.Env["AWS_ACCESS_KEY_ID"] != "key123" || d.Env["AWS_SECRET_ACCESS_KEY"] != "sec456" || d.Env["RESTIC_PASSWORD"] != "restic-pass" {
-		t.Fatalf("env not expanded: %#v", d.Env)
+	if d.S3 == nil {
+		t.Fatalf("expected s3 config to be set")
 	}
-	if d.Repository != "s3:https://fsn1.example.com/bucket" {
-		t.Fatalf("unexpected repository: %q", d.Repository)
+	if d.S3.AccessKeyID != "key123" || d.S3.SecretAccessKey != "sec456" {
+		t.Fatalf("s3 credentials not expanded: %#v", d.S3)
+	}
+	if d.Encryption == nil || d.Encryption.Password != "enc-pass" {
+		t.Fatalf("encryption password not expanded: %#v", d.Encryption)
+	}
+	if d.S3.Endpoint != "fsn1.example.com" {
+		t.Fatalf("unexpected endpoint: %q", d.S3.Endpoint)
 	}
 	// Check targets
 	if len(d.Targets) != 1 {
@@ -69,9 +79,9 @@ func TestLoad_EnvExpansionAndGetDestination(t *testing.T) {
 		t.Fatalf("unexpected volume name: %q", d.Targets[0].Volume)
 	}
 	// Also check pointer identity behavior by mutating via returned pointer
-	d.Env["TEST_MUTATE"] = "ok"
+	d.S3.Region = "test-mutate"
 	d2, _ := cfg.GetDestination("hetzner-s3")
-	if d2.Env["TEST_MUTATE"] != "ok" {
+	if d2.S3.Region != "test-mutate" {
 		t.Fatalf("GetDestination should return pointer to slice element")
 	}
 }
@@ -80,16 +90,16 @@ func TestLoad_CustomImageBackend(t *testing.T) {
 	t.Setenv("CUSTOM_IMAGE", "myrepo/backup:latest")
 	t.Setenv("BACKUP_TOKEN", "token456")
 	cfgYAML := `
- instances:
-   - id: custom-backup
-     customImage: ${CUSTOM_IMAGE}
-     schedule: "0 4 * * *"
-     env:
-       BACKUP_TOKEN: ${BACKUP_TOKEN}
-       BACKUP_ENDPOINT: https://backup.example.com
-     targets:
-       - volume: custom-data
- retention: "7d:4w:6m"
+instances:
+  - id: custom-backup
+    customImage: ${CUSTOM_IMAGE}
+    schedule: "0 4 * * *"
+    env:
+      BACKUP_TOKEN: ${BACKUP_TOKEN}
+      BACKUP_ENDPOINT: https://backup.example.com
+    targets:
+      - volume: custom-data
+retention: "7d:4w:6m"
 `
 	p := writeTempConfig(t, cfgYAML)
 	cfg, err := Load(p)
@@ -126,17 +136,19 @@ func TestLoad_TargetEnvExpansion(t *testing.T) {
 	t.Setenv("VOL_NAME", "my-volume")
 	t.Setenv("DB_PASSWORD", "secret123")
 	cfgYAML := `
- instances:
-   - id: test
-     repository: /tmp/backup
-     schedule: "0 2 * * *"
-     env:
-       RESTIC_PASSWORD: test
-     targets:
-       - volume: ${VOL_NAME}
-       - db: ${DB_NAME}
-         dbKind: postgres
-         dumpArgs: ["-U", "postgres", "-p${DB_PASSWORD}"]
+instances:
+  - id: test
+    s3:
+      endpoint: example.com
+      bucket: bucket
+      accessKeyId: key
+      secretAccessKey: secret
+    schedule: "0 2 * * *"
+    targets:
+      - volume: ${VOL_NAME}
+      - db: ${DB_NAME}
+        dbKind: postgres
+        dumpArgs: ["-U", "postgres", "-p${DB_PASSWORD}"]
 `
 	p := writeTempConfig(t, cfgYAML)
 	cfg, err := Load(p)
@@ -166,22 +178,68 @@ func TestLoad_TargetEnvExpansion(t *testing.T) {
 	}
 }
 
+func TestLoad_HookCommandEnvExpansion(t *testing.T) {
+	// Regression test: the old field-by-field expandEnv never touched
+	// HookCommand fields at all. The reflection-based walk must.
+	t.Setenv("HOOK_CONTAINER", "app-postgres")
+	t.Setenv("HOOK_IMAGE", "ubuntu:latest")
+	t.Setenv("HOOK_CMD", "echo hi")
+	cfgYAML := `
+instances:
+  - id: test
+    s3:
+      endpoint: example.com
+      bucket: bucket
+      accessKeyId: key
+      secretAccessKey: secret
+    schedule: "0 2 * * *"
+    targets:
+      - volume: data
+    beforeBackup:
+      - container: ${HOOK_CONTAINER}
+        command: ${HOOK_CMD}
+    afterBackup:
+      - image: ${HOOK_IMAGE}
+        command: ${HOOK_CMD}
+`
+	p := writeTempConfig(t, cfgYAML)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	d, err := cfg.GetDestination("test")
+	if err != nil {
+		t.Fatalf("GetDestination error: %v", err)
+	}
+	if len(d.BeforeBackup) != 1 || d.BeforeBackup[0].Container != "app-postgres" {
+		t.Fatalf("beforeBackup container not expanded: %#v", d.BeforeBackup)
+	}
+	if d.BeforeBackup[0].Command != "echo hi" {
+		t.Fatalf("beforeBackup command not expanded: %#v", d.BeforeBackup)
+	}
+	if len(d.AfterBackup) != 1 || d.AfterBackup[0].Image != "ubuntu:latest" {
+		t.Fatalf("afterBackup image not expanded: %#v", d.AfterBackup)
+	}
+}
+
 func TestLoad_Targets(t *testing.T) {
 	cfgYAML := `
- instances:
-   - id: test
-     repository: /tmp/backup
-     schedule: "0 2 * * *"
-     env:
-       RESTIC_PASSWORD: test
-     targets:
-       - volume: app-data
-       - db: postgres
-       - volume: full-config-volume
-         paths: ["/data"]
-       - db: full-config-db
-         dbKind: mysql
-         dumpArgs: ["-uroot"]
+instances:
+  - id: test
+    s3:
+      endpoint: example.com
+      bucket: bucket
+      accessKeyId: key
+      secretAccessKey: secret
+    schedule: "0 2 * * *"
+    targets:
+      - volume: app-data
+      - db: postgres
+      - volume: full-config-volume
+        paths: ["/data"]
+      - db: full-config-db
+        dbKind: mysql
+        dumpArgs: ["-uroot"]
 `
 	p := writeTempConfig(t, cfgYAML)
 	cfg, err := Load(p)
@@ -239,10 +297,12 @@ func TestLoad_MeshConfigEnvExpansion(t *testing.T) {
 	cfgYAML := `
 instances:
   - id: test
-    repository: /tmp/backup
+    s3:
+      endpoint: example.com
+      bucket: bucket
+      accessKeyId: key
+      secretAccessKey: secret
     schedule: "0 2 * * *"
-    env:
-      RESTIC_PASSWORD: test
     targets:
       - volume: app-data
 nodeName: ${NODE_NAME}
@@ -275,23 +335,27 @@ peers:
 
 func TestLoad_GlobalRetention(t *testing.T) {
 	cfgYAML := `
- instances:
-   - id: with-retention
-     repository: /tmp/backup1
-     schedule: "0 2 * * *"
-     retention: "30d:12w:24m"
-     env:
-       RESTIC_PASSWORD: test
-     targets:
-       - volume: app-data
-   - id: without-retention
-     repository: /tmp/backup2
-     schedule: "0 3 * * *"
-     env:
-       RESTIC_PASSWORD: test
-     targets:
-       - volume: other-data
- retention: "14d:8w:12m"
+instances:
+  - id: with-retention
+    s3:
+      endpoint: example.com
+      bucket: bucket1
+      accessKeyId: key
+      secretAccessKey: secret
+    schedule: "0 2 * * *"
+    retention: "30d:12w:24m"
+    targets:
+      - volume: app-data
+  - id: without-retention
+    s3:
+      endpoint: example.com
+      bucket: bucket2
+      accessKeyId: key
+      secretAccessKey: secret
+    schedule: "0 3 * * *"
+    targets:
+      - volume: other-data
+retention: "14d:8w:12m"
 `
 	p := writeTempConfig(t, cfgYAML)
 	cfg, err := Load(p)
@@ -326,19 +390,21 @@ func TestLoad_RuntimeConfigEnvExpansion(t *testing.T) {
 	t.Setenv("CORS_ORIGIN_1", "https://app1.example.com")
 	t.Setenv("CORS_ORIGIN_2", "https://app2.example.com")
 	cfgYAML := `
- instances:
-   - id: test
-     repository: /tmp/backup
-     schedule: "0 2 * * *"
-     env:
-       RESTIC_PASSWORD: test
-     targets:
-       - volume: app-data
- dbPath: ${DB_PATH}
- apiPort: ${API_PORT}
- corsOrigins:
-   - ${CORS_ORIGIN_1}
-   - ${CORS_ORIGIN_2}
+instances:
+  - id: test
+    s3:
+      endpoint: example.com
+      bucket: bucket
+      accessKeyId: key
+      secretAccessKey: secret
+    schedule: "0 2 * * *"
+    targets:
+      - volume: app-data
+dbPath: ${DB_PATH}
+apiPort: ${API_PORT}
+corsOrigins:
+  - ${CORS_ORIGIN_1}
+  - ${CORS_ORIGIN_2}
 `
 	p := writeTempConfig(t, cfgYAML)
 	cfg, err := Load(p)
@@ -359,5 +425,97 @@ func TestLoad_RuntimeConfigEnvExpansion(t *testing.T) {
 	}
 	if cfg.CorsOrigins[1] != "https://app2.example.com" {
 		t.Fatalf("CORS origin 2 not expanded: %q", cfg.CorsOrigins[1])
+	}
+}
+
+func TestValidate_RejectsBothS3AndCustomImage(t *testing.T) {
+	cfg := &Config{Instances: []BackupInstance{{
+		ID:          "test",
+		S3:          &S3Config{Endpoint: "e", Bucket: "b", AccessKeyID: "k", SecretAccessKey: "s"},
+		CustomImage: "image:latest",
+		Schedule:    "0 2 * * *",
+	}}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error when both s3 and customImage are set")
+	}
+}
+
+func TestValidate_RejectsNeitherS3NorCustomImage(t *testing.T) {
+	cfg := &Config{Instances: []BackupInstance{{ID: "test", Schedule: "0 2 * * *"}}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error when neither s3 nor customImage is set")
+	}
+}
+
+func TestValidate_RejectsIncompleteS3Config(t *testing.T) {
+	cases := []S3Config{
+		{Bucket: "b", AccessKeyID: "k", SecretAccessKey: "s"},   // missing endpoint
+		{Endpoint: "e", AccessKeyID: "k", SecretAccessKey: "s"}, // missing bucket
+		{Endpoint: "e", Bucket: "b", SecretAccessKey: "s"},      // missing accessKeyId
+		{Endpoint: "e", Bucket: "b", AccessKeyID: "k"},          // missing secretAccessKey
+	}
+	for i, s3 := range cases {
+		cfg := &Config{Instances: []BackupInstance{{ID: "test", S3: &s3, Schedule: "0 2 * * *"}}}
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("case %d: expected error for incomplete s3 config %#v", i, s3)
+		}
+	}
+}
+
+func TestValidate_RejectsBadTimeout(t *testing.T) {
+	s3 := S3Config{Endpoint: "e", Bucket: "b", AccessKeyID: "k", SecretAccessKey: "s"}
+	cfg := &Config{Instances: []BackupInstance{{ID: "test", S3: &s3, Schedule: "0 2 * * *", Timeout: "not-a-duration"}}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for malformed instance timeout")
+	}
+
+	cfg2 := &Config{Timeout: "not-a-duration"}
+	if err := cfg2.Validate(); err == nil {
+		t.Fatal("expected error for malformed global timeout")
+	}
+}
+
+func TestValidate_RejectsDuplicateInstanceIDs(t *testing.T) {
+	s3a := S3Config{Endpoint: "e", Bucket: "a", AccessKeyID: "k", SecretAccessKey: "s"}
+	s3b := S3Config{Endpoint: "e", Bucket: "b", AccessKeyID: "k", SecretAccessKey: "s"}
+	cfg := &Config{Instances: []BackupInstance{
+		{ID: "dup", S3: &s3a, Schedule: "0 2 * * *"},
+		{ID: "dup", S3: &s3b, Schedule: "0 3 * * *"},
+	}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for duplicate instance ids")
+	}
+}
+
+func TestValidate_RejectsMissingID(t *testing.T) {
+	s3 := S3Config{Endpoint: "e", Bucket: "b", AccessKeyID: "k", SecretAccessKey: "s"}
+	cfg := &Config{Instances: []BackupInstance{{S3: &s3, Schedule: "0 2 * * *"}}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for missing instance id")
+	}
+}
+
+func TestValidate_RejectsEncryptionOnCustomImage(t *testing.T) {
+	cfg := &Config{Instances: []BackupInstance{{
+		ID:          "test",
+		CustomImage: "image:latest",
+		Encryption:  &EncryptionConfig{Password: "pw"},
+		Schedule:    "0 2 * * *",
+	}}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for encryption set on a custom-image instance")
+	}
+}
+
+func TestValidate_AcceptsValidS3Config(t *testing.T) {
+	s3 := S3Config{Endpoint: "e", Bucket: "b", AccessKeyID: "k", SecretAccessKey: "s"}
+	cfg := &Config{Instances: []BackupInstance{{
+		ID:       "test",
+		S3:       &s3,
+		Schedule: "0 2 * * *",
+		Targets:  []TargetConfig{{Volume: "data"}},
+	}}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

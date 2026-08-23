@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
+	"time"
 
 	"github.com/polarfoxDev/marina/internal/model"
 	"gopkg.in/yaml.v3"
@@ -11,30 +13,50 @@ import (
 
 // Config represents the complete configuration file
 type Config struct {
-	Instances     []BackupInstance `yaml:"instances"`
-	Retention     string           `yaml:"retention,omitempty"`     // Global default retention
-	StopAttached  *bool            `yaml:"stopAttached,omitempty"`  // Global default stopAttached
-	ResticTimeout string           `yaml:"resticTimeout,omitempty"` // Global default timeout (e.g., "5m", "30s")
-	DBPath        string           `yaml:"dbPath,omitempty"`        // Database path (default: "/var/lib/marina/marina.db")
-	APIPort       string           `yaml:"apiPort,omitempty"`       // API server port (default: "8080")
-	CorsOrigins   []string         `yaml:"corsOrigins,omitempty"`   // Additional CORS origins for API server
-	NodeName      string           `yaml:"nodeName,omitempty"`      // Optional custom node name (defaults to hostname)
-	AuthPassword  string           `yaml:"authPassword,omitempty"`  // Optional authentication password for API access
-	Peers         []string         `yaml:"peers,omitempty"`         // Optional peer API URLs for federation (e.g., "http://marina-node2:8080")
+	Instances    []BackupInstance `yaml:"instances"`
+	Retention    string           `yaml:"retention,omitempty"`    // Global default retention
+	StopAttached *bool            `yaml:"stopAttached,omitempty"` // Global default stopAttached
+	Timeout      string           `yaml:"timeout,omitempty"`      // Global default backend timeout (e.g., "5m", "30s")
+	DBPath       string           `yaml:"dbPath,omitempty"`       // Database path (default: "/var/lib/marina/marina.db")
+	APIPort      string           `yaml:"apiPort,omitempty"`      // API server port (default: "8080")
+	CorsOrigins  []string         `yaml:"corsOrigins,omitempty"`  // Additional CORS origins for API server
+	NodeName     string           `yaml:"nodeName,omitempty"`     // Optional custom node name (defaults to hostname)
+	AuthPassword string           `yaml:"authPassword,omitempty"` // Optional authentication password for API access
+	Peers        []string         `yaml:"peers,omitempty"`        // Optional peer API URLs for federation (e.g., "http://marina-node2:8080")
+}
+
+// S3Config configures the S3-compatible destination for a backup instance.
+// This is the only supported storage backend other than a custom image.
+type S3Config struct {
+	Endpoint        string `yaml:"endpoint"`         // host[:port], no scheme, e.g. "fsn1.your-objectstorage.com"
+	Region          string `yaml:"region,omitempty"` // e.g. "fsn1", "us-east-1"
+	Bucket          string `yaml:"bucket"`           // bucket name (must already exist)
+	Prefix          string `yaml:"prefix,omitempty"` // optional key prefix within the bucket
+	AccessKeyID     string `yaml:"accessKeyId"`
+	SecretAccessKey string `yaml:"secretAccessKey"`
+	UseSSL          *bool  `yaml:"useSSL,omitempty"`         // default true
+	ForcePathStyle  bool   `yaml:"forcePathStyle,omitempty"` // default false; set true for MinIO and most non-AWS S3-compatible services
+}
+
+// EncryptionConfig configures optional end-to-end encryption of backup
+// archives. If Password is empty, archives are stored unencrypted.
+type EncryptionConfig struct {
+	Password string `yaml:"password,omitempty"`
 }
 
 // BackupInstance represents a backup instance configuration
 type BackupInstance struct {
-	ID            string              `yaml:"id"`
-	Repository    string              `yaml:"repository,omitempty"`    // Restic repository (not used if customImage is set)
-	CustomImage   string              `yaml:"customImage,omitempty"`   // Custom Docker image for backup (alternative to Restic)
-	Schedule      string              `yaml:"schedule"`                // Cron schedule for this instance's backups
-	Retention     string              `yaml:"retention,omitempty"`     // Optional: instance-specific retention (overrides global)
-	ResticTimeout string              `yaml:"resticTimeout,omitempty"` // Optional: instance-specific timeout (overrides global)
-	Env           map[string]string   `yaml:"env,omitempty"`           // Environment variables passed to backend
-	Targets       []TargetConfig      `yaml:"targets,omitempty"`       // List of backup targets (volumes and databases)
-	BeforeBackup  []model.HookCommand `yaml:"beforeBackup,omitempty"`  // Commands to run before backup starts
-	AfterBackup   []model.HookCommand `yaml:"afterBackup,omitempty"`   // Commands to run after backup completes
+	ID           string              `yaml:"id"`
+	S3           *S3Config           `yaml:"s3,omitempty"`           // S3-compatible destination (mutually exclusive with customImage)
+	CustomImage  string              `yaml:"customImage,omitempty"`  // Custom Docker image for backup (alternative to S3)
+	Encryption   *EncryptionConfig   `yaml:"encryption,omitempty"`   // Optional end-to-end encryption (S3 destinations only)
+	Schedule     string              `yaml:"schedule"`               // Cron schedule for this instance's backups
+	Retention    string              `yaml:"retention,omitempty"`    // Optional: instance-specific retention (overrides global)
+	Timeout      string              `yaml:"timeout,omitempty"`      // Optional: instance-specific backend timeout (overrides global)
+	Env          map[string]string   `yaml:"env,omitempty"`          // Environment variables passed to the custom-image backend
+	Targets      []TargetConfig      `yaml:"targets,omitempty"`      // List of backup targets (volumes and databases)
+	BeforeBackup []model.HookCommand `yaml:"beforeBackup,omitempty"` // Commands to run before backup starts
+	AfterBackup  []model.HookCommand `yaml:"afterBackup,omitempty"`  // Commands to run after backup completes
 }
 
 // TargetConfig represents a backup target configuration
@@ -48,6 +70,7 @@ type TargetConfig struct {
 }
 
 // Load reads and parses the config file, expanding environment variables
+// and validating the result.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -59,43 +82,139 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	// Expand environment variables in all fields
-	for i := range cfg.Instances {
-		cfg.Instances[i].Repository = expandEnv(cfg.Instances[i].Repository)
-		cfg.Instances[i].CustomImage = expandEnv(cfg.Instances[i].CustomImage)
-		cfg.Instances[i].Schedule = expandEnv(cfg.Instances[i].Schedule)
-		cfg.Instances[i].Retention = expandEnv(cfg.Instances[i].Retention)
-		cfg.Instances[i].ResticTimeout = expandEnv(cfg.Instances[i].ResticTimeout)
-		for k, v := range cfg.Instances[i].Env {
-			cfg.Instances[i].Env[k] = expandEnv(v)
-		}
-		// Expand environment variables in target configurations
-		for j := range cfg.Instances[i].Targets {
-			cfg.Instances[i].Targets[j].Volume = expandEnv(cfg.Instances[i].Targets[j].Volume)
-			cfg.Instances[i].Targets[j].DB = expandEnv(cfg.Instances[i].Targets[j].DB)
-			cfg.Instances[i].Targets[j].DBKind = expandEnv(cfg.Instances[i].Targets[j].DBKind)
-			for k := range cfg.Instances[i].Targets[j].Paths {
-				cfg.Instances[i].Targets[j].Paths[k] = expandEnv(cfg.Instances[i].Targets[j].Paths[k])
-			}
-			for k := range cfg.Instances[i].Targets[j].DumpArgs {
-				cfg.Instances[i].Targets[j].DumpArgs[k] = expandEnv(cfg.Instances[i].Targets[j].DumpArgs[k])
-			}
-		}
-	}
+	expandEnvInPlace(&cfg)
 
-	// Expand environment variables in runtime config
-	cfg.DBPath = expandEnv(cfg.DBPath)
-	cfg.APIPort = expandEnv(cfg.APIPort)
-	cfg.NodeName = expandEnv(cfg.NodeName)
-	cfg.AuthPassword = expandEnv(cfg.AuthPassword)
-	for i := range cfg.CorsOrigins {
-		cfg.CorsOrigins[i] = expandEnv(cfg.CorsOrigins[i])
-	}
-	for i := range cfg.Peers {
-		cfg.Peers[i] = expandEnv(cfg.Peers[i])
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return &cfg, nil
+}
+
+// Validate checks the config for the mistakes that would otherwise only
+// surface as a confusing runtime error: a destination that's neither S3 nor
+// a custom image (or is both), an S3 destination missing required fields, a
+// malformed timeout, or a duplicate/missing instance id.
+func (c *Config) Validate() error {
+	if c.Timeout != "" {
+		if _, err := time.ParseDuration(c.Timeout); err != nil {
+			return fmt.Errorf("global timeout %q: %w", c.Timeout, err)
+		}
+	}
+
+	seenIDs := make(map[string]bool, len(c.Instances))
+	for i := range c.Instances {
+		inst := &c.Instances[i]
+
+		if inst.ID == "" {
+			return fmt.Errorf("instance #%d: id is required", i+1)
+		}
+		if seenIDs[inst.ID] {
+			return fmt.Errorf("instance %q: duplicate id", inst.ID)
+		}
+		seenIDs[inst.ID] = true
+
+		hasS3 := inst.S3 != nil
+		hasCustomImage := inst.CustomImage != ""
+		if hasS3 && hasCustomImage {
+			return fmt.Errorf("instance %q: cannot specify both 's3' and 'customImage'", inst.ID)
+		}
+		if !hasS3 && !hasCustomImage {
+			return fmt.Errorf("instance %q: must specify either 's3' or 'customImage'", inst.ID)
+		}
+
+		if hasS3 {
+			if inst.S3.Endpoint == "" {
+				return fmt.Errorf("instance %q: s3.endpoint is required", inst.ID)
+			}
+			if inst.S3.Bucket == "" {
+				return fmt.Errorf("instance %q: s3.bucket is required", inst.ID)
+			}
+			if inst.S3.AccessKeyID == "" {
+				return fmt.Errorf("instance %q: s3.accessKeyId is required", inst.ID)
+			}
+			if inst.S3.SecretAccessKey == "" {
+				return fmt.Errorf("instance %q: s3.secretAccessKey is required", inst.ID)
+			}
+		} else if inst.Encryption != nil {
+			return fmt.Errorf("instance %q: encryption is only supported for s3 destinations", inst.ID)
+		}
+
+		if inst.Timeout != "" {
+			if _, err := time.ParseDuration(inst.Timeout); err != nil {
+				return fmt.Errorf("instance %q: timeout %q: %w", inst.ID, inst.Timeout, err)
+			}
+		}
+
+		for j, target := range inst.Targets {
+			hasVolume := target.Volume != ""
+			hasDB := target.DB != ""
+			if hasVolume && hasDB {
+				return fmt.Errorf("instance %q target #%d: cannot specify both 'volume' and 'db' in the same target", inst.ID, j+1)
+			}
+			if !hasVolume && !hasDB {
+				return fmt.Errorf("instance %q target #%d: must specify either 'volume' or 'db'", inst.ID, j+1)
+			}
+		}
+	}
+
+	return nil
+}
+
+// expandEnvInPlace walks every string, []string, and map[string]string
+// field reachable from cfg and expands ${VAR}/$VAR references in place.
+// Using reflection here (rather than a hand-maintained field-by-field list)
+// means every current and future config field gets env expansion "for
+// free" -- the previous field-by-field approach had already drifted out of
+// sync with the schema (see HookCommand fields, which it never touched).
+func expandEnvInPlace(cfg *Config) {
+	walkExpand(reflect.ValueOf(cfg))
+}
+
+func walkExpand(v reflect.Value) {
+	if !v.IsValid() {
+		return
+	}
+
+	switch v.Kind() {
+	case reflect.Ptr:
+		if !v.IsNil() {
+			walkExpand(v.Elem())
+		}
+
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			if v.Type().Field(i).PkgPath != "" {
+				continue // unexported field
+			}
+			walkExpand(v.Field(i))
+		}
+
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			walkExpand(v.Index(i))
+		}
+
+	case reflect.Map:
+		if v.IsNil() {
+			return
+		}
+		for _, key := range v.MapKeys() {
+			val := v.MapIndex(key)
+			if val.Kind() == reflect.String {
+				v.SetMapIndex(key, reflect.ValueOf(expandEnv(val.String())))
+			} else {
+				// Rare (no map[string]struct{...} fields today), but walk
+				// it anyway rather than silently skipping.
+				walkExpand(val)
+			}
+		}
+
+	case reflect.String:
+		if v.CanSet() {
+			v.SetString(expandEnv(v.String()))
+		}
+	}
 }
 
 // expandEnv expands environment variable references in the format ${VAR} or $VAR

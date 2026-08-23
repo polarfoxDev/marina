@@ -2,9 +2,9 @@
 
 ## Architecture Overview
 
-Marina is a config-driven backup orchestrator that uses Restic as its backend. All backup targets are defined in `config.yml`, validated at backup time, and executed via cron scheduling with application-aware hooks.
+Marina is a config-driven backup orchestrator that backs up directly to S3-compatible storage (no third-party backup tool involved), with optional end-to-end encryption. All backup targets are defined in `config.yml`, validated at backup time, and executed via cron scheduling with application-aware hooks.
 
-**Core workflow**: Config Loading → Schedule Building → Cron Scheduling → Execution (Runner) → Backend (Restic/Custom)
+**Core workflow**: Config Loading → Schedule Building → Cron Scheduling → Execution (Runner) → Backend (S3/Custom)
 
 **Runtime Validation**: Targets are validated at backup time—missing containers or volumes are skipped with warnings logged.
 
@@ -15,9 +15,12 @@ Marina is a config-driven backup orchestrator that uses Restic as its backend. A
 - **`internal/runner/runner.go`**: Orchestrates backup execution and cron scheduling; manages job lifecycle and status tracking
 - **`internal/runner/volume.go`**: Handles volume staging—container stopping, data copying, pre/post hooks, cleanup
 - **`internal/runner/database.go`**: Handles database staging—dump creation, auto-detection of DB type, pre/post hooks, cleanup
-- **`internal/runner/helpers.go`**: Validation utilities (file size checks, deduplication)
-- **`internal/backend/restic.go`**: Wraps Restic CLI commands (backup, forget, prune) with repository and environment variables
-- **`internal/backend/custom_image.go`**: Custom Docker image backend support for alternative backup destinations
+- **`internal/runner/helpers.go`**: Validation utilities (file size checks) and hook execution
+- **`internal/backend/s3.go`**: Archives each target (tar+zstd, optional age encryption) and streams it directly to an S3-compatible bucket via the S3 API; also implements the read path (`ListSnapshots`, `GetManifest`, `RestoreArtifact`) shared with `cmd/marinactl`
+- **`internal/backend/custom_image.go`**: Custom Docker image backend support for destinations other than S3
+- **`internal/archive/tar.go`**: Streaming tar+zstd archive/extract of a staged directory tree
+- **`internal/crypto/crypto.go`**: Thin wrapper around `filippo.io/age` for optional password-based encryption (no-op passthrough when no password is set)
+- **`cmd/marinactl/main.go`**: CLI for listing and restoring snapshots directly from S3 -- the only way to read a Marina backup back, since there's no external backup tool to fall back on
 - **`internal/model/model.go`**: Defines `BackupTarget` (volume or DB), `Retention` policy, and job state
 - **`internal/database/database.go`**: SQLite database for persistent job status and log storage
 - **`internal/logging/logger.go`**: Structured logging with job-specific loggers that write to both stdout and database
@@ -33,14 +36,16 @@ Marina uses a single `config.yml` file that defines all backup instances and the
 ```yaml
 instances:
   - id: hetzner-s3
-    repository: s3:https://fsn1.your-objectstorage.com/bucket
+    s3:
+      endpoint: fsn1.your-objectstorage.com # host[:port], no scheme
+      bucket: marina-backups
+      accessKeyId: ${AWS_KEY}
+      secretAccessKey: ${AWS_SECRET}
+    encryption:
+      password: ${ENC_PASS} # Optional: omit to store archives unencrypted
     schedule: "0 2 * * *" # Cron schedule for this instance's backups
     retention: "30d:12w:24m" # Optional: instance-specific retention
-    resticTimeout: "10m" # Optional: instance-specific timeout (default 60m)
-    env:
-      AWS_ACCESS_KEY_ID: ${AWS_KEY}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET}
-      RESTIC_PASSWORD: ${RESTIC_PASS}
+    timeout: "10m" # Optional: instance-specific timeout (default 60m)
     targets:
       - volume: app-data
         paths: ["/"] # Optional: paths relative to volume root
@@ -60,7 +65,7 @@ instances:
         command: "curl -X POST http://app-service/backup-complete"
 
   - id: custom-backup
-    customImage: your-registry/backup:latest # Alternative to Restic
+    customImage: your-registry/backup:latest # Alternative to S3
     schedule: "0 3 * * *"
     env:
       BACKUP_TOKEN: ${TOKEN}
@@ -70,7 +75,7 @@ instances:
 # Global defaults (can be overridden per instance or target)
 retention: "14d:8w:12m" # Format: daily:weekly:monthly
 stopAttached: true # Default for all volume targets
-resticTimeout: "60m" # Global timeout for backup operations
+timeout: "60m" # Global timeout for backend operations
 
 # Runtime configuration
 dbPath: "/var/lib/marina/marina.db" # Database path (default shown)
@@ -88,7 +93,7 @@ peers:
 - Schedule: Required per-instance in config.yml
 - Retention: Instance-specific (optional) > Global `retention` > Hardcoded default "7d:4w:6m"
 - StopAttached: Target-specific > Global `stopAttached` > Hardcoded default false
-- Timeout: Instance-specific (optional) > Global `resticTimeout` > Hardcoded default "60m"
+- Timeout: Instance-specific (optional) > Global `timeout` > Hardcoded default "60m"
 - Node name: `nodeName` (top-level) > hostname
 - Auth password: `authPassword` (top-level) > empty (disabled)
 
@@ -123,16 +128,16 @@ peers:
 
 1. **Backend execution**:
 
-   - All staged paths from all targets collected into single list
-   - Tags generated for each target: `volume:name` or `db:name`
-   - Restic backend: `restic backup` with all paths in one operation, then `forget` + `prune` for retention
+   - One `backend.Artifact{Type, Name, Root}` collected per successfully staged target (root dir, not a flat path list)
+   - S3 backend: each artifact archived (tar+zstd, optionally age-encrypted) and uploaded as its own object, then a `manifest.json` written last as the completion marker for that snapshot
    - Custom image backend: Container created with `/backup/{instanceID}` mounted, runs `/backup.sh` script
    - Failed targets logged but don't stop other targets from being backed up
 
 1. **Retention**:
-   - Applied _after every backup_ via `DeleteOldSnapshots()`
-   - Parsed from config like `"7d:14w:6m"` → `--keep-daily 7 --keep-weekly 14 --keep-monthly 6`
+   - Applied _after every backup_ via `Backend.ApplyRetention()`
+   - Parsed from config like `"7d:14w:6m"` → keep the newest snapshot in each of the most recent 7 days, 14 weeks, 6 months (`helpers.SelectExpiredSnapshots`); the single newest snapshot is always kept regardless of policy
    - Defaults: 7 daily, 4 weekly, 6 monthly (see `helpers/retention.go`)
+   - S3 backend: snapshots with no manifest (aborted mid-upload) are never touched by retention, and never considered "complete" by `marinactl list` either
 
 ### Critical Patterns
 
@@ -140,7 +145,7 @@ peers:
 
 **Job lifecycle tracking**: Runner tracks scheduled jobs in `scheduledJobs` map (instance ID → cron.EntryID); `SyncBackups()` updates schedules if config changes
 
-**Multi-backend support**: Runner accepts a map of `Backend` objects keyed by instance ID; supports both Restic and custom Docker image backends
+**Multi-backend support**: Runner accepts a map of `Backend` objects keyed by instance ID; supports both S3 and custom Docker image backends
 
 **Runtime validation**: Targets validated at backup time via Docker API—missing volumes/containers skipped with warnings, don't fail entire backup
 
@@ -158,15 +163,12 @@ peers:
 
 **Environment variable expansion**: Config loader uses regex to match `${VAR}` and `$VAR` patterns and expands them using `os.Getenv()`
 
-**Restic unlock on backup**: Before each backup, Restic automatically runs `unlock` to clear stale locks from crashed or stopped processes
-
 **Database auto-detection**: `detectDBKind()` in `database.go` checks container image name for "postgres", "mysql", "mariadb", "mongo", "redis"
 
 **Logging**: Structured logging with job-specific loggers; logs written to both stdout and SQLite database for API queries
 
 **Job status persistence**: SQLite database tracks job history, status, timestamps, target counts; survives restarts
 
-**macOS compatibility**: On macOS with Docker Desktop, Restic repositories must use Docker named volumes (not bind mounts) to avoid "bad file descriptor" errors during fsync operations caused by the Docker VM filesystem layer (osxfs/VirtioFS)
 
 ## Development Workflows
 
@@ -176,9 +178,9 @@ peers:
 
 ```bash
 # Set up environment variables referenced in config.yml
-export RESTIC_PASSWORD=test
-export AWS_ACCESS_KEY_ID=your-key
-export AWS_SECRET_ACCESS_KEY=your-secret
+export S3_ACCESS_KEY_ID=your-key
+export S3_SECRET_ACCESS_KEY=your-secret
+export MARINA_ENC_PASSWORD=your-encryption-password  # optional
 
 # Run with default config file (/config.yml or config.yml in current directory)
 ./marina
@@ -199,11 +201,11 @@ schedules, _ := scheduler.BuildSchedulesFromConfig(cfg)
 ## Project Conventions
 
 - **Package structure**: `cmd/` for binaries, `internal/` for libraries (not importable outside module)
-- **Interfaces**: `Backend` interface supports multiple backends (Restic, custom Docker images)
+- **Interfaces**: `Backend` interface supports multiple backends (S3, custom Docker images)
 - **Error wrapping**: Use `fmt.Errorf("context: %w", err)` for wrappable errors throughout
 - **Logging**: Structured logging via `internal/logging`; job loggers write to both stdout and database
 - **Tests**: Project has unit tests in `*_test.go` files (see `internal/scheduler/builder_test.go`) and integration tests in `tests/integration/`
-- **Config format**: `config.yml` defines backup instances (mapped by ID) with embedded targets; instances include repository URL, schedule, environment variables, and target list
+- **Config format**: `config.yml` defines backup instances (mapped by ID) with embedded targets; instances include an `s3:` block (or `customImage:`), optional `encryption:`, schedule, and target list
 - **Configuration philosophy**: All backup configuration in config.yml; no Docker labels; targets validated at runtime
 - **Runner organization**: Core orchestration in `runner.go`; staging logic split into `volume.go` and `database.go`; helpers in `helpers.go`
 - **CHANGELOG**: After making changes, add entries to the `## [Unreleased]` section in `CHANGELOG.md` following Keep a Changelog format (Added/Changed/Deprecated/Removed/Fixed/Security)
@@ -275,12 +277,9 @@ When the user requests to "prepare release" or similar:
 [0.9.0]: https://github.com/polarfoxDev/marina/compare/v0.8.0...v0.9.0
 ```
 
-## Planned Features
-
-- **Recovery**: Restore operations from Restic snapshots
-
 ## Implemented Features
 
+- **Restore**: `marinactl list`/`marinactl restore` read snapshots directly from S3; see `docs/archive-format.md`
 - **Web Interface**: React-based dashboard for monitoring backup status and logs (in `web/` directory)
 - **Peer Federation**: Multi-node federation allowing unified monitoring across multiple Marina instances
   - Configured via top-level `peers` array in config.yml
@@ -295,7 +294,7 @@ See `docker-compose.example.yml` for a complete deployment example with:
 - Marina manager container with Docker socket access
 - Volume and database backup examples in config.yml
 - Host bind mount for staging directory (required)
-- S3/local/custom backend configuration
+- S3/custom backend configuration
 - Peer federation setup for multi-node deployments
 
 ## Context

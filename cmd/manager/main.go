@@ -79,42 +79,68 @@ func main() {
 	}
 	logger.Info("using node name %s for backups", nodeName)
 
+	// Create Docker client
+	dcli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		log.Fatalf("docker client: %v", err)
+	}
+
+	// Detect the actual host path for /backup mount. Resolved before
+	// building instances so custom-image backends can be constructed
+	// directly with their real HostBackupPath, instead of a placeholder
+	// that gets back-patched afterwards.
+	hostBackupPath, err := dockerd.GetBackupHostPath(ctx, dcli)
+	if err != nil {
+		log.Fatalf("detect host backup path: %v", err)
+	}
+	logger.Info("detected host backup path: %s", hostBackupPath)
+
 	// Build map of instances from config
 	instances := make(map[model.InstanceID]backend.Backend)
 	for _, dest := range cfg.Instances {
 		var backendInstance backend.Backend
 		var backendErr error
 
-		// Parse restic timeout (instance-specific or global default)
-		timeoutStr := dest.ResticTimeout
+		// Parse backend timeout (instance-specific or global default)
+		timeoutStr := dest.Timeout
 		if timeoutStr == "" {
-			timeoutStr = cfg.ResticTimeout
+			timeoutStr = cfg.Timeout
 		}
-		var resticTimeout time.Duration
+		var timeout time.Duration
 		if timeoutStr != "" {
-			resticTimeout, err = time.ParseDuration(timeoutStr)
+			timeout, err = time.ParseDuration(timeoutStr)
 			if err != nil {
-				log.Fatalf("invalid restic timeout %q for instance %s: %v", timeoutStr, dest.ID, err)
+				// config.Load already validates this, so this should be unreachable.
+				log.Fatalf("invalid timeout %q for instance %s: %v", timeoutStr, dest.ID, err)
 			}
 		}
 
 		if dest.CustomImage != "" {
-			// Use custom Docker image backend (hostBackupPath will be set after detection)
-			backendInstance, backendErr = backend.NewCustomImageBackend(dest.ID, dest.CustomImage, dest.Env, nodeName, "")
+			backendInstance, backendErr = backend.NewCustomImageBackend(dest.ID, dest.CustomImage, dest.Env, nodeName, hostBackupPath)
 			if backendErr != nil {
 				log.Fatalf("create custom image backend for %s: %v", dest.ID, backendErr)
 			}
 			logger.Info("loaded instance: %s -> custom image: %s", dest.ID, dest.CustomImage)
 		} else {
-			// Use Restic backend
-			backendInstance = &backend.ResticBackend{
-				ID:         dest.ID,
-				Repository: dest.Repository,
-				Env:        dest.Env,
-				Hostname:   nodeName,
-				Timeout:    resticTimeout,
+			s3Backend := &backend.S3Backend{
+				ID:              dest.ID,
+				Node:            nodeName,
+				Endpoint:        dest.S3.Endpoint,
+				Region:          dest.S3.Region,
+				Bucket:          dest.S3.Bucket,
+				Prefix:          dest.S3.Prefix,
+				AccessKeyID:     dest.S3.AccessKeyID,
+				SecretAccessKey: dest.S3.SecretAccessKey,
+				UseSSL:          dest.S3.UseSSL == nil || *dest.S3.UseSSL,
+				ForcePathStyle:  dest.S3.ForcePathStyle,
+				Timeout:         timeout,
+				MarinaVersion:   version.Version,
 			}
-			logger.Info("loaded instance: %s -> restic: %s", dest.ID, dest.Repository)
+			if dest.Encryption != nil {
+				s3Backend.Password = dest.Encryption.Password
+			}
+			backendInstance = s3Backend
+			logger.Info("loaded instance: %s -> s3: %s/%s", dest.ID, dest.S3.Endpoint, dest.S3.Bucket)
 		}
 
 		instances[model.InstanceID(dest.ID)] = backendInstance
@@ -124,7 +150,7 @@ func main() {
 		log.Fatal("no instances configured in config.yml")
 	}
 
-	// Initialize each instance repository (idempotent: checks snapshots first)
+	// Initialize each instance (verifies the destination is reachable)
 	for id, instance := range instances {
 		if err := instance.Init(ctx); err != nil {
 			log.Fatalf("init instance %s: %v", id, err)
@@ -139,27 +165,6 @@ func main() {
 	}
 	logger.Info("loaded %d backup schedules from config", len(schedules))
 
-	// Create Docker client
-	dcli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		log.Fatalf("docker client: %v", err)
-	}
-
-	// Detect the actual host path for /backup mount
-	hostBackupPath, err := dockerd.GetBackupHostPath(ctx, dcli)
-	if err != nil {
-		log.Fatalf("detect host backup path: %v", err)
-	}
-	logger.Info("detected host backup path: %s", hostBackupPath)
-
-	// Update custom image backends with host backup path
-	for id, instance := range instances {
-		if customBackend, ok := instance.(*backend.CustomImageBackend); ok {
-			customBackend.HostBackupPath = hostBackupPath
-			logger.Debug("updated instance %s with host backup path", id)
-		}
-	}
-
 	// Create runner with all instances
 	r := runner.New(
 		instances,
@@ -167,6 +172,7 @@ func main() {
 		logger,
 		db,
 		hostBackupPath,
+		nodeName,
 	)
 
 	// Start the scheduler

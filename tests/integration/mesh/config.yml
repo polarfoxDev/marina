@@ -1,9 +1,15 @@
 instances:
   - id: backup2
-    repository: /repo
+    s3:
+      endpoint: marina-it-minio:9000
+      bucket: it-bucket
+      accessKeyId: minioadmin
+      secretAccessKey: minioadmin
+      useSSL: false
+      forcePathStyle: true
+    encryption:
+      password: testpass
     schedule: "* * * * *" # Every minute for fast integration testing
-    env:
-      RESTIC_PASSWORD: testpass
     targets:
       - volume: mesh_testdata2 # volume prefixed by docker-compose
         stopAttached: true
@@ -11,7 +17,7 @@ instances:
 # Global defaults
 retention: "7d:4w:6m"
 stopAttached: true
-resticTimeout: "30s"
+timeout: "30s"
 
 nodeName: server2
 authPassword: mesh

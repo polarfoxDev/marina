@@ -111,16 +111,3 @@ func validateFileSize(paths []string, jobLogger *logging.JobLogger) error {
 	jobLogger.Warn("all %d file(s) are empty (0 bytes)", totalFiles)
 	return fmt.Errorf("all %d file(s) are empty (0 bytes) - backup likely failed silently", totalFiles)
 }
-
-// deduplicate removes duplicate strings from a slice
-func deduplicate(slice []string) []string {
-	seen := make(map[string]bool)
-	result := []string{}
-	for _, item := range slice {
-		if !seen[item] {
-			seen[item] = true
-			result = append(result, item)
-		}
-	}
-	return result
-}

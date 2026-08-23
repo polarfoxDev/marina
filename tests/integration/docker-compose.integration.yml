@@ -1,4 +1,39 @@
 services:
+  # S3-compatible destination for the integration tests -- replaces the
+  # local restic repository volume. container_name is set explicitly so
+  # the mesh stack (a separate compose project on the same external
+  # network) can reach it by a stable hostname.
+  minio:
+    image: minio/minio:latest
+    container_name: marina-it-minio
+    command: ["server", "/data"]
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    networks:
+      - mesh
+
+  # One-shot bucket bootstrap. Marina's S3 backend never creates buckets
+  # itself (Init only checks they exist), so the bucket has to be created
+  # before marina starts.
+  createbuckets:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://marina-it-minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/it-bucket
+      "
+    networks:
+      - mesh
+
   marina:
     image: marina:latest
     container_name: marina-it
@@ -14,17 +49,27 @@ services:
     volumes:
       - data:/var/lib/marina/
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - repo:/repo
       - ./staging:/backup
       - ./config.yml:/config/config.yml:ro
     depends_on:
-      - postgres
-      - mysql
-      - mariadb
-      - mongo
-      - postgres-empty
-      - volume-writer
-      - volume-writer-empty
+      createbuckets:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+      mysql:
+        condition: service_started
+      mariadb:
+        condition: service_started
+      mongo:
+        condition: service_started
+      postgres-empty:
+        condition: service_started
+      volume-writer:
+        condition: service_started
+      volume-writer-empty:
+        condition: service_started
+      volume-writer-plain:
+        condition: service_started
     networks:
       - mesh
 
@@ -80,11 +125,21 @@ services:
     volumes:
       - testdata-empty:/mnt/data
 
+  # Dedicated volume for the unencrypted instance, kept separate from
+  # volume-writer so the two instances' stopAttached handling never races
+  # on the same container.
+  volume-writer-plain:
+    image: alpine:3.20
+    container_name: volwriter-plain-it
+    command: ["sh", "-lc", "echo 'plain instance test data' > /mnt/data/test.txt && sleep infinity"]
+    volumes:
+      - testdata-plain:/mnt/data
+
 volumes:
   data:
-  repo:
   testdata:
   testdata-empty:
+  testdata-plain:
 
 networks:
   mesh:

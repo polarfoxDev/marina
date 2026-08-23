@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/docker/docker/client"
@@ -26,13 +25,14 @@ type Runner struct {
 	Logger          *logging.Logger
 	DB              *database.DB // Database for persistent job status tracking
 	HostBackupPath  string       // Actual host path where /backup is mounted from
+	NodeName        string       // This node's name, recorded on every snapshot
 
 	// Track scheduled jobs for dynamic updates
 	scheduledJobs map[model.InstanceID]cron.EntryID                 // instance ID -> cron entry ID
 	jobs          map[model.InstanceID]model.InstanceBackupSchedule // instance ID -> backup job config
 }
 
-func New(instances map[model.InstanceID]backend.Backend, docker *client.Client, logger *logging.Logger, db *database.DB, hostBackupPath string) *Runner {
+func New(instances map[model.InstanceID]backend.Backend, docker *client.Client, logger *logging.Logger, db *database.DB, hostBackupPath, nodeName string) *Runner {
 	return &Runner{
 		Cron:            cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
 		BackupInstances: instances,
@@ -40,6 +40,7 @@ func New(instances map[model.InstanceID]backend.Backend, docker *client.Client, 
 		Logger:          logger,
 		DB:              db,
 		HostBackupPath:  hostBackupPath,
+		NodeName:        nodeName,
 		scheduledJobs:   make(map[model.InstanceID]cron.EntryID),
 		jobs:            make(map[model.InstanceID]model.InstanceBackupSchedule),
 	}
@@ -249,7 +250,7 @@ func (r *Runner) updateJobStatus(ctx context.Context, jobStatusID int, updateFn 
 	return nil
 }
 
-// runInstanceBackup executes all backups for an instance in a single Restic operation
+// runInstanceBackup executes all backups for an instance in a single backend operation
 func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackupSchedule, jobStatusID int, instanceLogger *logging.JobLogger) error {
 	dest, ok := r.BackupInstances[job.InstanceID]
 	if !ok {
@@ -299,8 +300,7 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	// Create staging directory path for this backup run (inside container: /backup/...)
 	instanceStagingDir := filepath.Join("/backup", string(job.InstanceID), timestamp)
 
-	var allPaths []string
-	var allTags []string
+	var artifacts []backend.Artifact
 
 	// Track cleanup functions to defer
 	var cleanups []cleanupFunc
@@ -328,27 +328,35 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 
 		switch target.Type {
 		case model.TargetVolume:
-			paths, cleanup, err := r.stageVolume(ctx, string(job.InstanceID), timestamp, target, targetLogger)
+			_, cleanup, err := r.stageVolume(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
 				targetLogger.Warn("failed to stage volume: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("volume:%s", target.Name))
 				continue // Skip this target but continue with others
 			}
-			targetLogger.Info("volume staged successfully (%d paths)", len(paths))
-			allPaths = append(allPaths, paths...)
+			targetLogger.Info("volume staged successfully")
+			artifacts = append(artifacts, backend.Artifact{
+				Type: target.Type,
+				Name: target.Name,
+				Root: filepath.Join("/backup", string(job.InstanceID), timestamp, "volume", target.Name),
+			})
 			if cleanup != nil {
 				cleanups = append(cleanups, cleanup)
 			}
 
 		case model.TargetDB:
-			path, cleanup, err := r.stageDatabase(ctx, string(job.InstanceID), timestamp, target, targetLogger)
+			_, cleanup, err := r.stageDatabase(ctx, string(job.InstanceID), timestamp, target, targetLogger)
 			if err != nil {
 				targetLogger.Warn("failed to stage database: %v", err)
 				failedTargets = append(failedTargets, fmt.Sprintf("db:%s", target.Name))
 				continue // Skip this target but continue with others
 			}
 			targetLogger.Info("database dump completed successfully")
-			allPaths = append(allPaths, path)
+			artifacts = append(artifacts, backend.Artifact{
+				Type: target.Type,
+				Name: target.Name,
+				Root: filepath.Join("/backup", string(job.InstanceID), timestamp, "db", target.Name),
+			})
 			if cleanup != nil {
 				cleanups = append(cleanups, cleanup)
 			}
@@ -358,12 +366,9 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 			failedTargets = append(failedTargets, fmt.Sprintf("%s:%s", target.Type, target.Name))
 			continue
 		}
-
-		// Collect tags from all targets
-		allTags = append(allTags, fmt.Sprintf("%s:%s", target.Type, target.Name))
 	}
 	// Check if all targets failed
-	if len(allPaths) == 0 {
+	if len(artifacts) == 0 {
 		if err := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
 			status.Status = model.StatusFailed
 			now := time.Now()
@@ -382,33 +387,20 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	// Log warning if some targets failed
 	if len(failedTargets) > 0 {
 		instanceLogger.Warn("backup proceeding with %d/%d targets (%d failed: %v)",
-			len(allPaths), len(job.Targets), len(failedTargets), failedTargets)
-		// filter out tags of failed targets
-		filteredTags := []string{}
-		for _, tag := range allTags {
-			failed := slices.Contains(failedTargets, tag)
-			if !failed {
-				filteredTags = append(filteredTags, tag)
-			}
-		}
-		allTags = filteredTags
+			len(artifacts), len(job.Targets), len(failedTargets), failedTargets)
 	}
 
-	allTags = deduplicate(allTags)
+	// Perform a single backup run covering every successfully staged artifact
+	instanceLogger.Info("backing up %d artifact(s) to instance %s using backend %s", len(artifacts), job.InstanceID, dest.GetType())
 
-	// Perform single backup with all collected paths
-	instanceLogger.Info("backing up %d paths to instance %s using backend %s: %s", len(allPaths), job.InstanceID, dest.GetType(), allPaths)
-	instanceLogger.Debug("backend timeout: %s", dest.GetResticTimeout())
+	dest.SetLogger(instanceLogger)
 
-	if dest.GetType() == backend.BackendTypeCustomImage {
-		instanceLogger.Info("using custom image %s", dest.GetImage())
-		// Type assert to CustomImageBackend to set the logger
-		if customBackend, ok := dest.(*backend.CustomImageBackend); ok {
-			customBackend.SetLogger(instanceLogger)
-		}
-	}
-
-	logs, err := dest.Backup(ctx, allPaths, allTags)
+	logs, err := dest.Backup(ctx, backend.Snapshot{
+		InstanceID: string(job.InstanceID),
+		Node:       r.NodeName,
+		Timestamp:  timestamp,
+		Artifacts:  artifacts,
+	})
 	instanceLogger.Debug("%s", logs)
 	if err != nil {
 		if updateErr := r.updateJobStatus(ctx, jobStatusID, func(status *model.JobStatus) {
@@ -423,7 +415,11 @@ func (r *Runner) runInstanceBackup(ctx context.Context, job model.InstanceBackup
 	}
 
 	// Apply retention policy
-	_, _ = dest.DeleteOldSnapshots(ctx, job.Retention.KeepDaily, job.Retention.KeepWeekly, job.Retention.KeepMonthly)
+	if retentionLogs, err := dest.ApplyRetention(ctx, job.Retention); err != nil {
+		instanceLogger.Warn("retention failed: %v", err)
+	} else {
+		instanceLogger.Debug("%s", retentionLogs)
+	}
 
 	// Execute afterBackup hooks if any
 	for _, hook := range job.AfterBackup {

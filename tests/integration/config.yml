@@ -1,9 +1,15 @@
 instances:
   - id: local-integration
-    repository: /repo
+    s3:
+      endpoint: marina-it-minio:9000
+      bucket: it-bucket
+      accessKeyId: minioadmin
+      secretAccessKey: minioadmin
+      useSSL: false
+      forcePathStyle: true
+    encryption:
+      password: testpass
     schedule: "* * * * *" # Every minute for fast integration testing
-    env:
-      RESTIC_PASSWORD: testpass
     beforeBackup:
       - container: mariadb-it
         command: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdbeforefirstdump;'"
@@ -23,10 +29,29 @@ instances:
       - volume: integration_testdata # volume-writer data (prefixed by docker-compose)
       - volume: integration_testdata-empty # volume-writer-empty data (prefixed by docker-compose)
 
+  # Same bucket, no encryption -- exercises the plaintext archive path
+  # end-to-end alongside the encrypted instance above. Deliberately offset
+  # from local-integration's "* * * * *" (odd minutes only, never the same
+  # second) -- both instances share one sqlite job-status database in this
+  # container, and firing two cron jobs at the exact same instant is a
+  # known trigger for a separate, pre-existing SQLITE_BUSY issue in the
+  # database layer that isn't what this test is trying to exercise.
+  - id: local-integration-plain
+    s3:
+      endpoint: marina-it-minio:9000
+      bucket: it-bucket
+      accessKeyId: minioadmin
+      secretAccessKey: minioadmin
+      useSSL: false
+      forcePathStyle: true
+    schedule: "1-59/2 * * * *"
+    targets:
+      - volume: integration_testdata-plain
+
 # Global defaults
 retention: "7d:4w:6m"
 stopAttached: true
-resticTimeout: "30s"
+timeout: "30s"
 
 nodeName: server1
 authPassword: mesh
