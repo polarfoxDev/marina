@@ -4,6 +4,7 @@ integration/*.log
 /marina
 /manager
 /api
+/marinactl
 *.db
 *.db-shm
 *.db-wal

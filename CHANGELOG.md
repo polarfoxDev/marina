@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-23
+
+### Added
+
+- Native S3 backend (`internal/backend/s3.go`): archives each target as tar+zstd and streams it
+  directly to any S3-compatible bucket via the S3 API -- no third-party backup tool involved
+- Optional end-to-end encryption of backup archives, password-based via [age](https://age-encryption.org/)
+  (`encryption.password` in config; omit it to store archives unencrypted)
+- `marinactl`, a CLI shipped in the Docker image for listing and restoring snapshots directly from
+  S3 (`marinactl list`, `marinactl restore`) -- see [Archive Format](docs/archive-format.md)
+- Config validation (`config.Validate`, called from `config.Load`): a destination that's neither S3
+  nor a custom image (or is both), an incomplete `s3:` block, a malformed `timeout`, or a duplicate
+  instance id now fails fast at config load with a clear error, instead of at runtime
+- Retention is now enforced (and testable) directly by Marina (`helpers.SelectExpiredSnapshots`)
+  rather than delegated to an external tool; retention failures are now logged instead of silently
+  discarded
+- Instance-level `beforeBackup` and `afterBackup` hooks for running commands before/after backups
+- Hooks can execute in existing containers (`container:`) or temporary containers (`image:`)
+- `ExecInTemporaryContainer` function for running hook commands in ephemeral containers
+
+### Changed
+
+- **Breaking**: `repository:` + freeform `env:` credentials replaced by a typed `s3:` block
+  (`endpoint`, `bucket`, `accessKeyId`, `secretAccessKey`, ...); `env:` is now custom-image-backend
+  only. See [config.example.yml](config.example.yml) for the new schema
+- **Breaking**: `resticTimeout:` renamed to `timeout:` (instance and global)
+- Moved hook system from per-target `preHook`/`postHook` to instance-level `beforeBackup`/`afterBackup`
+- `afterBackup` hook failures log errors but don't fail successful backups
+- Config env-var expansion (`${VAR}`/`$VAR`) now walks every field via reflection instead of a
+  hand-maintained field list, fixing a bug where `beforeBackup`/`afterBackup` fields were never
+  expanded
+
+### Removed
+
+- **Breaking**: Restic backend and the vendored `restic` binary. Existing restic repositories are
+  **not** readable by this version -- restore any backups you need with the restic CLI (or keep a
+  0.10.x container available) before upgrading, then reconfigure instances with the new `s3:` block
+- **Breaking**: SFTP support (was restic-only; use a [custom image backend](docs/custom-backends.md)
+  if you need it)
+- Per-target `preHook` and `postHook` configuration options (replaced by instance-level hooks)
+
 ## [0.10.0] - 2026-01-04
 
 ### Changed
@@ -235,7 +276,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker event listener for dynamic discovery
 - Configuration via config.yml and Docker labels
 
-[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/polarfoxDev/marina/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/polarfoxDev/marina/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/polarfoxDev/marina/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/polarfoxDev/marina/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/polarfoxDev/marina/compare/v0.7.1...v0.8.0

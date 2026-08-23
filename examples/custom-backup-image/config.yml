@@ -7,10 +7,14 @@ instances:
       BACKUP_TOKEN: example-token-12345
     targets:
       - volume: custom-data
-  - id: restic-backup
-    repository: /backup-repo
+  # Marina's built-in S3 backend, shown side by side with the custom image
+  # backend above for comparison.
+  - id: s3-backup
+    s3:
+      endpoint: s3.example.com
+      bucket: example-bucket
+      accessKeyId: example-access-key
+      secretAccessKey: example-secret-key
     schedule: "* * * * *" # every minute
-    env:
-      RESTIC_PASSWORD: example-token-12345
     targets:
-      - volume: restic-data
+      - volume: s3-data

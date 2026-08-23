@@ -1,9 +1,9 @@
 # Marina
 
-**Docker-native backup orchestration using Restic**
+**Docker-native backup orchestration for S3**
 
-Marina is a config-driven backup orchestrator that backs up Docker volumes and databases. It uses [Restic](https://restic.net/) as the backup backend
-and supports multiple backup destinations (S3, local, and any Restic-compatible storage). In addition, Marina supports custom Docker image backends for maximum flexibility.
+Marina is a config-driven backup orchestrator that backs up Docker volumes and databases directly to any S3-compatible bucket, with optional
+end-to-end encryption. In addition, Marina supports custom Docker image backends for destinations S3 doesn't cover.
 
 ## Project Status
 
@@ -12,17 +12,15 @@ and supports multiple backup destinations (S3, local, and any Restic-compatible 
 > Migration paths are not guaranteed until version 1.0. Always review the [CHANGELOG](CHANGELOG.md) before upgrading.
 >
 > **Status Update June 2026:** Unfortunately, I didn't have enough time recently to maintain this project and get it done, but I still plan to get it going again soon and
-> relase a version 1.0 later this year.
-
-Planned features:
-
-- Recovery operations from Restic snapshots
+> release a version 1.0 later this year.
 
 ## Features
 
 - **Config-driven**: Define all backup targets in config.yml with YAML syntax
-- **Multiple backup destinations**: S3, local filesystem, or any Restic repository
-- **Custom backup backends**: Use custom Docker images for alternative backup destinations
+- **S3-native**: Backs up directly to any S3-compatible bucket (AWS, Hetzner, DigitalOcean Spaces, MinIO, ...) with no third-party backup tool involved
+- **Optional end-to-end encryption**: Password-based encryption ([age](https://age-encryption.org/)) applied before upload; omit it to store archives unencrypted
+- **Restore**: [`marinactl`](#restoring-a-backup) lists and restores snapshots straight from the bucket
+- **Custom backup backends**: Use custom Docker images for destinations other than S3
 - **Database dumps**: Native support for PostgreSQL, MySQL, MariaDB, MongoDB, and Redis with auto-detection
 - **Volume backups**: Back up Docker volumes with optional container stop/start
 - **Runtime validation**: Targets validated at backup time—missing containers/volumes are skipped with warnings
@@ -41,14 +39,19 @@ Create a `config.yml` file with your backup instances and targets:
 
 ```yaml
 instances:
-  - id: local-backup
-    repository: /mnt/backup/restic
+  - id: hetzner-s3
+    s3:
+      endpoint: fsn1.your-objectstorage.com # host[:port], no scheme
+      bucket: marina-backups                # must already exist
+      accessKeyId: your-access-key
+      secretAccessKey: your-secret-key
+    encryption:
+      # Optional: omit this block to store archives unencrypted
+      password: your-encryption-password
     schedule: "0 2 * * *"  # Daily at 2 AM
     retention: "7d:4w:6m"  # 7 daily, 4 weekly, 6 monthly
-    # Optional: backup timeout for the restic command (default: 60m)
-    resticTimeout: "10m"
-    env:
-      RESTIC_PASSWORD: your-restic-password
+    # Optional: backup timeout (default: 60m)
+    timeout: "10m"
     targets:
       - volume: app-data
         paths: ["/"]         # Paths relative to volume root
@@ -57,11 +60,16 @@ instances:
         # dbKind auto-detected from container image
         # dbKind: postgres   # Override auto-detection if needed
         # dumpArgs: ["--clean", "--if-exists"]  # Optional dump arguments
-        # preHook: "psql -U myapp -c 'CHECKPOINT;'"  # Optional pre-backup command
+    beforeBackup: # Optional commands to run before backup starts
+      - container: app-postgres # run inside existing container
+        command: "psql -U myapp -c 'CHECKPOINT;'"
+    afterBackup: # Optional commands to run after backup completes
+      - image: ubuntu:latest # run in temporary container
+        command: "curl -X POST https://my.app/backup-complete"
 
 # Optional global defaults
 stopAttached: true  # Stop containers when backing up volumes
-resticTimeout: "60m"      # Global timeout for all restic commands (default: 60m)
+timeout: "60m"      # Global timeout for backend operations (default: 60m)
 
 # Optional: Custom node name (defaults to hostname)
 nodeName: ${NODE_NAME}  # or "production-server"
@@ -76,7 +84,7 @@ peers:
   - http://marina-node3:8080
 ```
 
-See [config.example.yml](config.example.yml) for more examples including S3, SFTP, and additional target options.
+See [config.example.yml](config.example.yml) for more examples, including MinIO and additional target options.
 
 ### 2. Set up your docker-compose.yml
 
@@ -99,7 +107,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      RESTIC_PASSWORD: "${RESTIC_PASSWORD}"
+      S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID}"
+      S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY}"
+      MARINA_ENC_PASSWORD: "${MARINA_ENC_PASSWORD}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
 
   # Example: PostgreSQL database (container name must match config.yml)
@@ -203,23 +213,19 @@ targets:
 
 #### Volume Targets
 
-| Field          | Required | Description                                       | Example           |
-| -------------- | -------- | ------------------------------------------------- | ----------------- |
-| `volume`       | Yes      | Volume name (as shown in `docker volume ls`)      | `"app-data"`      |
-| `paths`        | No       | Paths to backup (relative to volume root)         | `["/", "/data"]`  |
-| `stopAttached` | No       | Stop attached containers during backup            | `true`            |
-| `preHook`      | No       | Command to run before backup (in first container) | `"echo Starting"` |
-| `postHook`     | No       | Command to run after backup (in first container)  | `"echo Done"`     |
+| Field          | Required | Description                                  | Example          |
+| -------------- | -------- | -------------------------------------------- | ---------------- |
+| `volume`       | Yes      | Volume name (as shown in `docker volume ls`) | `"app-data"`     |
+| `paths`        | No       | Paths to backup (relative to volume root)    | `["/", "/data"]` |
+| `stopAttached` | No       | Stop attached containers during backup       | `true`           |
 
 #### Database Targets
 
-| Field      | Required | Description                                        | Example                                                    |
-| ---------- | -------- | -------------------------------------------------- | ---------------------------------------------------------- |
-| `db`       | Yes      | Container name (as shown in `docker ps`)           | `"postgres"`, `"my-mysql"`                                 |
-| `dbKind`   | No*      | Database type (auto-detected if not provided)      | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
-| `dumpArgs` | No       | Additional arguments for dump command              | `["--clean", "--if-exists"]` (PostgreSQL)                  |
-| `preHook`  | No       | Command to run before backup (inside DB container) | `"psql -U myapp -c 'CHECKPOINT;'"`                         |
-| `postHook` | No       | Command to run after backup (inside DB container)  | `"echo Done"`                                              |
+| Field      | Required | Description                                   | Example                                                    |
+| ---------- | -------- | --------------------------------------------- | ---------------------------------------------------------- |
+| `db`       | Yes      | Container name (as shown in `docker ps`)      | `"postgres"`, `"my-mysql"`                                 |
+| `dbKind`   | No*      | Database type (auto-detected if not provided) | `"postgres"`, `"mysql"`, `"mariadb"`, `"mongo"`, `"redis"` |
+| `dumpArgs` | No       | Additional arguments for dump command         | `["--clean", "--if-exists"]` (PostgreSQL)                  |
 
 **\*dbKind auto-detection**: Marina automatically detects the database type from the container image name (e.g., `postgres:16` → `postgres`).
 You can override this by explicitly specifying `dbKind`. If detection fails and no `dbKind` is provided, the target will be skipped.
@@ -234,7 +240,7 @@ environment variable as it interferes with container initialization.
 
 Marina uses a single configuration file (`config.yml`) that defines:
 
-1. **Backup instances**: Repositories, credentials, schedules, retention policies, and targets
+1. **Backup instances**: S3 destinations (or custom images), credentials, schedules, retention policies, and targets
 2. **Backup targets**: Volumes and databases to back up, defined within each instance
 3. **Global defaults**: Optional default values for all instances
 4. **Mesh networking**: Optional multi-node federation for unified monitoring
@@ -260,91 +266,46 @@ This host path is then used to create bind mounts in temporary containers for:
 
 ```yaml
 volumes:
-  - ./staging:/backup              # Relative path
+  - ./staging:/backup                # Relative path
   - /var/lib/marina/staging:/backup  # Absolute path
-  - $HOME/marina-staging:/backup   # With environment variable
+  - $HOME/marina-staging:/backup     # With environment variable
 ```
 
 **Note**: Each custom backend container only sees its own instance's data at `/backup/{instanceID}` for security and isolation.
 
-### SFTP Backend Setup
+### Restoring a Backup
 
-If you want to use SFTP as your backup destination, you need to provide SSH keys to Marina:
-
-**1. Generate or prepare SSH keys** (if you don't have them already):
-
-```bash
-mkdir -p ./ssh-keys
-ssh-keygen -t ed25519 -f ./ssh-keys/id_ed25519 -N "" -C "marina-backup"
-chmod 600 ./ssh-keys/id_ed25519
-chmod 644 ./ssh-keys/id_ed25519.pub
-```
-
-**2. Add your SFTP server's host key** to avoid "unknown host" errors:
+Marina writes its own archive format directly to the bucket — see [Archive Format](docs/archive-format.md) for the exact layout. There is no
+external backup tool involved, so restoring is done with `marinactl`, a small CLI built into the Marina image:
 
 ```bash
-ssh-keyscan -H backup.example.com >> ./ssh-keys/known_hosts
-# Or for custom ports:
-ssh-keyscan -p 2222 -H backup.example.com >> ./ssh-keys/known_hosts
+# List complete snapshots for an instance (decrypts manifests if a password is available)
+docker exec marina marinactl list hetzner-s3
+
+# Restore the latest snapshot
+docker exec marina marinactl restore hetzner-s3 latest --out /tmp/restore
+
+# Restore a specific snapshot, or just one target from it
+docker exec marina marinactl restore hetzner-s3 20260823-020000 --out /tmp/restore --target volume:app-uploads
 ```
 
-**3. Copy your public key** to the SFTP server:
+`marinactl` reads S3 credentials and the encryption password from the same config file Marina itself uses (`--config`, default `/config.yml`);
+`--password` or `MARINA_ENC_PASSWORD` override the password for restoring on a machine without that config. Every restored file's checksum is
+verified against the manifest as it streams, so a truncated or corrupted object is caught immediately rather than silently restored.
+
+If encryption is enabled, an archive can also be recovered without Marina at all, using the standalone [`age`](https://github.com/FiloSottile/age)
+CLI plus `zstd` and `tar`:
 
 ```bash
-ssh-copy-id -i ./ssh-keys/id_ed25519.pub user@backup.example.com
+age -d -i key.txt backup.tar.zst.age | zstd -d | tar -x   # with an age identity file
+age -d backup.tar.zst.age | zstd -d | tar -x              # with a password, interactively
 ```
-
-**4. Mount the SSH keys** in your docker-compose.yml:
-
-```yaml
-services:
-  marina:
-    volumes:
-      - ./ssh-keys:/root/.ssh:ro  # Mount SSH keys read-only
-```
-
-**5. Configure SFTP repository** in your config.yml:
-
-```yaml
-instances:
-  - id: sftp-backup
-    repository: sftp:user@backup.example.com:/path/to/repo
-    schedule: "0 2 * * *"
-    env:
-      RESTIC_PASSWORD: your-restic-password
-    targets:
-      - volume: app-data
-      - db: postgres
-```
-
-**Note**: The SFTP user must have write access to the repository path. Restic will initialize the repository automatically on first backup
-if it doesn't exist.
-
-### macOS Compatibility Note
-
-When using Restic on macOS with Docker Desktop, **use named Docker volumes instead of bind mounts** for the repository storage. Bind mounts
-on macOS can cause "bad file descriptor" errors during fsync operations due to filesystem compatibility issues between the Docker VM and macOS.
-
-**Recommended for macOS**:
-
-```yaml
-services:
-  marina:
-    volumes:
-      - restic-repo:/repo  # Named volume (recommended on macOS)
-      - ./staging:/backup  # Staging can still use bind mount
-
-volumes:
-  restic-repo:  # Let Docker manage the repository
-```
-
-**Linux users can safely use bind mounts** for both `/backup` and repository paths without these issues.
 
 ### Custom Backup Backends
 
-In addition to Restic, Marina supports **custom Docker image backends** that allow you to implement your own backup logic. This is useful for:
+In addition to S3, Marina supports **custom Docker image backends** that allow you to implement your own backup logic. This is useful for:
 
-- Backing up to services not supported by Restic
+- Backing up to a destination other than S3 (e.g. SFTP, another cloud provider)
 - Implementing custom backup formats or compression
 - Integrating with proprietary backup systems
 - Custom data transformation before backup
@@ -384,6 +345,7 @@ See the [custom backup image example](examples/custom-backup-image/) for a compl
 See [config.example.yml](config.example.yml) for a complete configuration example including mesh mode setup and
 [docker-compose.example.yml](docker-compose.example.yml) for a full deployment example.
 
+- [Archive Format](docs/archive-format.md) - Object layout, manifest schema, and manual recovery without Marina
 - [Custom Backends](docs/custom-backends.md) - Build your own backup backend using Docker images
 - [Architecture](docs/architecture-diagram.md) - System design and data flow
 - [Web Interface](docs/web-interface.md) - React dashboard and mesh mode
@@ -393,7 +355,7 @@ See [config.example.yml](config.example.yml) for a complete configuration exampl
 
 - Docker 20.10 or later
 - Docker Compose v2 (optional, for easier deployment)
-- Restic-compatible storage (included in the Docker image)
+- An S3-compatible bucket (AWS, Hetzner, DigitalOcean Spaces, MinIO, ...) that already exists
 
 ## Development
 
@@ -407,6 +369,7 @@ cd marina
 # Build the binaries
 go build -o marina ./cmd/manager
 go build -o marina-api ./cmd/api
+go build -o marinactl ./cmd/marinactl
 
 # Or build the Docker image
 docker build -t marina:dev .

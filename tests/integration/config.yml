@@ -1,25 +1,57 @@
 instances:
   - id: local-integration
-    repository: /repo
+    s3:
+      endpoint: marina-it-minio:9000
+      bucket: it-bucket
+      accessKeyId: minioadmin
+      secretAccessKey: minioadmin
+      useSSL: false
+      forcePathStyle: true
+    encryption:
+      password: testpass
     schedule: "* * * * *" # Every minute for fast integration testing
-    env:
-      RESTIC_PASSWORD: testpass
+    beforeBackup:
+      - container: mariadb-it
+        command: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdbeforefirstdump;'"
+      - container: pg-empty-it
+        command: "echo '#!/bin/sh' > /usr/local/bin/pg_dumpall && echo 'exit 0' >> /usr/local/bin/pg_dumpall && chmod +x /usr/local/bin/pg_dumpall"
+    afterBackup:
+      - container: mariadb-it
+        command: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdafterfirstdump;'"
+      - image: alpine:3.20
+        command: "echo 'After backup hook executed'"
     targets:
       - db: pg-it # postgres container
       - db: mysql-it # mysql container
-      - db: mariadb-it # mariadb container with hooks
-        preHook: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdbeforefirstdump;'"
-        postHook: "mariadb -uroot -pmaripass -e 'CREATE DATABASE IF NOT EXISTS createdafterfirstdump;'"
+      - db: mariadb-it # mariadb container
       - db: mongo-it # mongo container
       - db: pg-empty-it # postgres-empty container
-        preHook: "echo '#!/bin/sh' > /usr/local/bin/pg_dumpall && echo 'exit 0' >> /usr/local/bin/pg_dumpall && chmod +x /usr/local/bin/pg_dumpall"
       - volume: integration_testdata # volume-writer data (prefixed by docker-compose)
       - volume: integration_testdata-empty # volume-writer-empty data (prefixed by docker-compose)
+
+  # Same bucket, no encryption -- exercises the plaintext archive path
+  # end-to-end alongside the encrypted instance above. Deliberately offset
+  # from local-integration's "* * * * *" (odd minutes only, never the same
+  # second) -- both instances share one sqlite job-status database in this
+  # container, and firing two cron jobs at the exact same instant is a
+  # known trigger for a separate, pre-existing SQLITE_BUSY issue in the
+  # database layer that isn't what this test is trying to exercise.
+  - id: local-integration-plain
+    s3:
+      endpoint: marina-it-minio:9000
+      bucket: it-bucket
+      accessKeyId: minioadmin
+      secretAccessKey: minioadmin
+      useSSL: false
+      forcePathStyle: true
+    schedule: "1-59/2 * * * *"
+    targets:
+      - volume: integration_testdata-plain
 
 # Global defaults
 retention: "7d:4w:6m"
 stopAttached: true
-resticTimeout: "30s"
+timeout: "30s"
 
 nodeName: server1
 authPassword: mesh

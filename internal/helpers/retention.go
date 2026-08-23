@@ -1,8 +1,11 @@
 package helpers
 
 import (
+	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/polarfoxDev/marina/internal/model"
 )
@@ -42,4 +45,63 @@ func ParseRetention(s string) model.Retention {
 		return model.Retention{KeepDaily: 7, KeepWeekly: 4, KeepMonthly: 6}
 	}
 	return r
+}
+
+// SelectExpiredSnapshots decides which of the given snapshot timestamps are
+// expired under retention r, given the current set of snapshots (there is
+// no external clock involved -- the policy is purely "which of the
+// snapshots I already have should I keep").
+//
+// The newest snapshot in each of the most recent r.KeepDaily distinct
+// calendar days, r.KeepWeekly distinct ISO weeks, and r.KeepMonthly distinct
+// months is kept; buckets are independent, so a snapshot kept by the daily
+// rule and one kept by the weekly rule can be different snapshots. The
+// single newest snapshot overall is always kept, even under a "0:0:0"
+// policy -- retention should never be able to delete every backup.
+//
+// The returned slice (possibly empty, never for the newest snapshot) is in
+// no particular order.
+func SelectExpiredSnapshots(snapshots []time.Time, r model.Retention) []time.Time {
+	if len(snapshots) == 0 {
+		return nil
+	}
+
+	sorted := append([]time.Time(nil), snapshots...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].After(sorted[j]) })
+
+	keep := make([]bool, len(sorted))
+	keep[0] = true // newest snapshot is always kept
+
+	keepMostRecentPerBucket := func(n int, bucketKey func(time.Time) string) {
+		seen := map[string]bool{}
+		for i, t := range sorted {
+			if len(seen) >= n {
+				break
+			}
+			key := bucketKey(t)
+			if !seen[key] {
+				seen[key] = true
+				keep[i] = true
+			}
+		}
+	}
+
+	keepMostRecentPerBucket(r.KeepDaily, func(t time.Time) string {
+		return t.Format("2006-01-02")
+	})
+	keepMostRecentPerBucket(r.KeepWeekly, func(t time.Time) string {
+		year, week := t.ISOWeek()
+		return fmt.Sprintf("%d-W%02d", year, week)
+	})
+	keepMostRecentPerBucket(r.KeepMonthly, func(t time.Time) string {
+		return t.Format("2006-01")
+	})
+
+	var expired []time.Time
+	for i, t := range sorted {
+		if !keep[i] {
+			expired = append(expired, t)
+		}
+	}
+	return expired
 }

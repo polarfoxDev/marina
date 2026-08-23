@@ -3,6 +3,8 @@ package backend
 import (
 	"context"
 	"testing"
+
+	"github.com/polarfoxDev/marina/internal/model"
 )
 
 func TestCustomImageBackend_Interface(t *testing.T) {
@@ -33,7 +35,7 @@ func TestCustomImageBackend_Interface(t *testing.T) {
 	}
 }
 
-func TestCustomImageBackend_DeleteOldSnapshots(t *testing.T) {
+func TestCustomImageBackend_ApplyRetention(t *testing.T) {
 	backend, err := NewCustomImageBackend("test-id", "alpine:latest", nil, "test-host", "/tmp/backup")
 	if err != nil {
 		t.Fatalf("NewCustomImageBackend failed: %v", err)
@@ -42,10 +44,10 @@ func TestCustomImageBackend_DeleteOldSnapshots(t *testing.T) {
 
 	ctx := context.Background()
 
-	// DeleteOldSnapshots should be a no-op for custom images
-	output, err := backend.DeleteOldSnapshots(ctx, 7, 4, 6)
+	// ApplyRetention should be a no-op for custom images
+	output, err := backend.ApplyRetention(ctx, model.Retention{KeepDaily: 7, KeepWeekly: 4, KeepMonthly: 6})
 	if err != nil {
-		t.Errorf("DeleteOldSnapshots failed: %v", err)
+		t.Errorf("ApplyRetention failed: %v", err)
 	}
 
 	if output != "" {

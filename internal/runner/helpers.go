@@ -1,14 +1,49 @@
 package runner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 
+	"github.com/polarfoxDev/marina/internal/docker"
 	"github.com/polarfoxDev/marina/internal/logging"
+	"github.com/polarfoxDev/marina/internal/model"
 )
+
+func (r *Runner) executeHook(ctx context.Context, hook model.HookCommand, jobLogger *logging.JobLogger) error {
+	if hook.Container == "" && hook.Image == "" {
+		return fmt.Errorf("hook must specify either container or image")
+	}
+	if hook.Container != "" && hook.Image != "" {
+		return fmt.Errorf("hook cannot specify both container and image")
+	}
+
+	if hook.Container != "" {
+		// Execute in existing container
+		jobLogger.Info("executing hook in container %s: %s", hook.Container, hook.Command)
+		containerID, err := docker.GetContainerID(ctx, r.Docker, hook.Container)
+		if err != nil {
+			return fmt.Errorf("get container ID for %s: %w", hook.Container, err)
+		}
+		output, err := docker.ExecInContainer(ctx, r.Docker, containerID, []string{"/bin/sh", "-lc", hook.Command})
+		jobLogger.Info("hook output: %s", output)
+		if err != nil {
+			return fmt.Errorf("execute hook in container %s: %w", hook.Container, err)
+		}
+	} else if hook.Image != "" {
+		// Run temporary container with command
+		jobLogger.Info("executing hook in temporary container from image %s: %s", hook.Image, hook.Command)
+		output, err := docker.ExecInTemporaryContainer(ctx, r.Docker, hook.Image, []string{"/bin/sh", "-lc", hook.Command})
+		jobLogger.Info("hook output: %s", output)
+		if err != nil {
+			return fmt.Errorf("execute hook in temporary container from image %s: %w", hook.Image, err)
+		}
+	}
+	return nil
+}
 
 // validateFileSize checks that at least one file with content (size > 0) exists in the given paths.
 // It recursively walks directories and validates that there's at least one non-empty file.
@@ -75,17 +110,4 @@ func validateFileSize(paths []string, jobLogger *logging.JobLogger) error {
 	// If we got here, all files were empty
 	jobLogger.Warn("all %d file(s) are empty (0 bytes)", totalFiles)
 	return fmt.Errorf("all %d file(s) are empty (0 bytes) - backup likely failed silently", totalFiles)
-}
-
-// deduplicate removes duplicate strings from a slice
-func deduplicate(slice []string) []string {
-	seen := make(map[string]bool)
-	result := []string{}
-	for _, item := range slice {
-		if !seen[item] {
-			seen[item] = true
-			result = append(result, item)
-		}
-	}
-	return result
 }

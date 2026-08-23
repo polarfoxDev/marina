@@ -58,8 +58,6 @@ func BuildSchedulesFromConfig(cfg *config.Config) ([]model.InstanceBackupSchedul
 					Name:         targetCfg.Volume,
 					Type:         model.TargetVolume,
 					InstanceID:   model.InstanceID(inst.ID),
-					PreHook:      targetCfg.PreHook,
-					PostHook:     targetCfg.PostHook,
 					Paths:        paths,
 					StopAttached: stopAttached,
 					// AttachedCtrs will be resolved during staging
@@ -73,8 +71,6 @@ func BuildSchedulesFromConfig(cfg *config.Config) ([]model.InstanceBackupSchedul
 					Name:       targetCfg.DB,
 					Type:       model.TargetDB,
 					InstanceID: model.InstanceID(inst.ID),
-					PreHook:    targetCfg.PreHook,
-					PostHook:   targetCfg.PostHook,
 					DBKind:     strings.ToLower(targetCfg.DBKind), // may be empty, will auto-detect during staging
 					DumpArgs:   targetCfg.DumpArgs,
 					// ContainerID will be resolved during staging
@@ -98,6 +94,8 @@ func BuildSchedulesFromConfig(cfg *config.Config) ([]model.InstanceBackupSchedul
 			InstanceID:   model.InstanceID(inst.ID),
 			ScheduleCron: inst.Schedule,
 			Targets:      targets,
+			BeforeBackup: inst.BeforeBackup,
+			AfterBackup:  inst.AfterBackup,
 			Retention:    helpers.ParseRetention(retention),
 		}
 		schedules = append(schedules, schedule)

@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/polarfoxDev/marina/internal/logging"
+	"github.com/polarfoxDev/marina/internal/model"
 )
 
 // lineWriter writes log lines to the logger in real-time
@@ -105,14 +106,6 @@ func (b *CustomImageBackend) GetType() BackendType {
 	return BackendTypeCustomImage
 }
 
-func (b *CustomImageBackend) GetImage() string {
-	return b.CustomImage
-}
-
-func (b *CustomImageBackend) GetResticTimeout() string {
-	return "N/A" // Custom images don't have configurable timeouts
-}
-
 // Init initializes the backend by pulling the custom image if needed
 func (b *CustomImageBackend) Init(ctx context.Context) error {
 	// Always try to pull to get latest; fallback to local image if pull fails.
@@ -132,7 +125,7 @@ func (b *CustomImageBackend) Init(ctx context.Context) error {
 }
 
 // Backup performs the backup by starting a container with the custom image
-func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []string) (string, error) {
+func (b *CustomImageBackend) Backup(ctx context.Context, snap Snapshot) (string, error) {
 	// Build environment variables
 	envVars := []string{}
 	for k, v := range b.Env {
@@ -142,6 +135,12 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 	// Add metadata as environment variables
 	envVars = append(envVars, fmt.Sprintf("MARINA_HOSTNAME=%s", b.Hostname))
 	envVars = append(envVars, fmt.Sprintf("MARINA_INSTANCE_ID=%s", b.ID))
+	envVars = append(envVars, fmt.Sprintf("MARINA_TIMESTAMP=%s", snap.Timestamp))
+	targetNames := make([]string, 0, len(snap.Artifacts))
+	for _, a := range snap.Artifacts {
+		targetNames = append(targetNames, fmt.Sprintf("%s:%s", a.Type, a.Name))
+	}
+	envVars = append(envVars, fmt.Sprintf("MARINA_TARGETS=%s", strings.Join(targetNames, ",")))
 
 	// Create container configuration
 	config := &container.Config{
@@ -256,9 +255,9 @@ func (b *CustomImageBackend) Backup(ctx context.Context, paths []string, tags []
 	return "", nil
 }
 
-// DeleteOldSnapshots is a no-op for custom images - they handle their own retention
-// The retention policy is informational only
-func (b *CustomImageBackend) DeleteOldSnapshots(ctx context.Context, daily, weekly, monthly int) (string, error) {
+// ApplyRetention is a no-op for custom images - they handle their own retention.
+// The retention policy is informational only.
+func (b *CustomImageBackend) ApplyRetention(ctx context.Context, retention model.Retention) (string, error) {
 	return "", nil
 }
 

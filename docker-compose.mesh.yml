@@ -97,29 +97,35 @@ networks:
 
 # Example config-node1.yml:
 # instances:
-#   - id: local-backup
-#     repository: /backup/restic
+#   - id: s3-backup
+#     s3:
+#       endpoint: fsn1.your-objectstorage.com
+#       bucket: marina-backups
+#       accessKeyId: ${S3_ACCESS_KEY_ID}
+#       secretAccessKey: ${S3_SECRET_ACCESS_KEY}
+#     encryption:
+#       password: ${MARINA_ENC_PASSWORD}
 #     schedule: "0 2 * * *"
-#     env:
-#       RESTIC_PASSWORD: test123
 #     targets:
-#       - "volume:app-data"
-# mesh:
-#   nodeName: ${NODE_NAME}
-#   peers:
-#     - ${PEER_NODE_2}
-#     - ${PEER_NODE_3}
+#       - volume: app-data
+# nodeName: ${NODE_NAME}
+# peers:
+#   - ${PEER_NODE_2}
+#   - ${PEER_NODE_3}
 
 # Example config-node2.yml (similar structure, different peers):
 # instances:
-#   - id: local-backup
-#     repository: /backup/restic
+#   - id: s3-backup
+#     s3:
+#       endpoint: fsn1.your-objectstorage.com
+#       bucket: marina-backups
+#       accessKeyId: ${S3_ACCESS_KEY_ID}
+#       secretAccessKey: ${S3_SECRET_ACCESS_KEY}
+#     encryption:
+#       password: ${MARINA_ENC_PASSWORD}
 #     schedule: "0 3 * * *"
-#     env:
-#       RESTIC_PASSWORD: test123
 #     targets:
-#       - "volume:app-data"
-# mesh:
-#   nodeName: ${NODE_NAME}
-#   peers:
-#     - ${PEER_NODE_1}
+#       - volume: app-data
+# nodeName: ${NODE_NAME}
+# peers:
+#   - ${PEER_NODE_1}
