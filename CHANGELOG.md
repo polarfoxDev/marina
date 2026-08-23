@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-23
+
+### Changed
+
+- **Backend**: Updated Go from 1.25.5 to 1.26.0
+- **Backend**: Updated all Go dependencies to latest versions
+- **Frontend**: Updated to Vite 8, ESLint 10, Tailwind CSS 4.3, React 19.2.8, and all other web
+  dependencies to latest versions
+- **Frontend**: `packageManager` pin updated from pnpm 9.0.0 to 10.33.2 to match the version
+  actually in use
+- **Frontend**: TypeScript held at 6.0.3 rather than the newly-released 7.0 (the Go-ported
+  compiler) since `typescript-eslint` doesn't support it yet
+- **Frontend**: Two `eslint-plugin-react-hooks` v7 rules (`set-state-in-effect`, `immutability`)
+  are disabled -- they flag the app's standard fetch-on-mount/poll effect pattern throughout the
+  codebase rather than an actual issue
+
+### Fixed
+
+- Added the missing `vite-env.d.ts` type reference, required by the updated TypeScript version for
+  CSS side-effect imports to type-check
+
 ## [0.11.0] - 2026-08-23
 
 ### Added
